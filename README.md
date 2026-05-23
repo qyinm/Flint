@@ -15,6 +15,8 @@ Flint is a native macOS input layer for reusable AI prompt workflows. Type a sho
 
 Flint is not another chatbot. It sits before the chatbot so prompt-heavy builders can stop copy-pasting the same review, debug, planning, and Codex task prompts.
 
+Flint is inspired by tools like [espanso](https://espanso.org/) and [Wispr Flow](https://wisprflow.ai/): espanso proves how powerful typed text expansion can be, while Wispr Flow points toward a faster voice-first input layer. Flint applies that spirit specifically to reusable AI prompt templates.
+
 ## What works today
 
 - Native macOS menu bar app
