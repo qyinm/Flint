@@ -1,0 +1,30 @@
+schema_version: 1
+id: bug-debugger
+name: Bug Debugger
+description: Diagnose a bug from symptoms, logs, and code context before proposing fixes.
+triggers:
+  typed: [":debug"]
+  spoken: ["debug prompt"]
+variables:
+  symptom:
+    default: "the observed failure"
+  constraint:
+    default: "prefer the smallest verifiable fix"
+targets:
+  generic: |
+    Diagnose this bug: {{symptom}}.
+
+    Constraint: {{constraint}}.
+
+    Return:
+    1. Most likely root causes ranked by evidence
+    2. Evidence still needed
+    3. Minimal reproduction or inspection path
+    4. Smallest safe fix
+    5. Verification plan
+  codex: |
+    You are Codex debugging this repository.
+
+    Start from the provided symptom: {{symptom}}.
+    Do not patch before identifying evidence. Prefer {{constraint}}.
+    Return root cause, files to inspect, patch plan, and tests to run.

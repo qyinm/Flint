@@ -1,0 +1,32 @@
+schema_version: 1
+id: codex-task
+name: Codex Task
+description: Convert a request into a Codex-ready task brief.
+triggers:
+  typed: [":codex"]
+  spoken: ["make Codex task"]
+variables:
+  outcome:
+    default: "the requested change is implemented and verified"
+  constraints:
+    default: "keep diffs small, preserve existing behavior, and verify before completion"
+targets:
+  generic: |
+    Convert this request into a Codex-ready task.
+
+    Target outcome: {{outcome}}
+    Constraints: {{constraints}}
+
+    Include:
+    - Context to inspect
+    - Step sequence
+    - Acceptance criteria
+    - Validation commands
+    - Stop conditions
+  codex: |
+    You are Codex. Execute this task to completion.
+
+    Outcome: {{outcome}}
+    Constraints: {{constraints}}
+
+    First inspect the repo, then implement, test, and report changed files plus evidence.

@@ -1,0 +1,26 @@
+schema_version: 1
+id: implementation-plan
+name: Implementation Plan
+description: Convert an idea into an execution-ready implementation plan.
+triggers:
+  typed: [":plan"]
+  spoken: ["planning prompt"]
+variables:
+  scope:
+    default: "the smallest useful version"
+  verification:
+    default: "tests, typecheck, lint, and manual smoke checks where needed"
+targets:
+  generic: |
+    Turn this idea into an implementation plan for {{scope}}.
+
+    Include:
+    - Goal and non-goals
+    - Assumptions
+    - Step-by-step implementation sequence
+    - Risks and mitigations
+    - Acceptance criteria
+    - Verification using {{verification}}
+  codex: |
+    Create a Codex-ready implementation plan for {{scope}}.
+    Include concrete file discovery steps, expected edits, acceptance criteria, and validation commands.

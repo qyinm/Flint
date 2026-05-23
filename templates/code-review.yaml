@@ -1,0 +1,30 @@
+schema_version: 1
+id: code-review
+name: Code Review
+description: Review a code change for correctness, regressions, edge cases, and tests.
+triggers:
+  typed: [":review"]
+  spoken: ["review template", "code review prompt"]
+variables:
+  focus:
+    default: "correctness, edge cases, regressions, test gaps, and smallest safe fix"
+  severity_floor:
+    default: "include critical and high-confidence issues first"
+targets:
+  generic: |
+    You are reviewing this code change.
+
+    Focus on: {{focus}}.
+    Severity guidance: {{severity_floor}}.
+
+    Return:
+    1. Critical bugs or regressions
+    2. Edge cases
+    3. Test gaps
+    4. Smallest safe fix
+    5. Questions only if they block review
+  codex: |
+    You are Codex reviewing this repository change.
+
+    Inspect the relevant files before judging. Focus on {{focus}}.
+    Return concise findings with file references when possible, then list validation commands.

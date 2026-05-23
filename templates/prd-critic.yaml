@@ -1,0 +1,26 @@
+schema_version: 1
+id: prd-critic
+name: PRD Critic
+description: Critique a PRD or plan for clarity, scope, assumptions, and verification.
+triggers:
+  typed: [":critic"]
+  spoken: ["critic prompt"]
+variables:
+  review_focus:
+    default: "vague claims, missing success criteria, hidden assumptions, scope creep, and weak verification"
+targets:
+  generic: |
+    Critique this PRD or plan.
+
+    Focus on: {{review_focus}}.
+
+    Return:
+    1. Blocking issues
+    2. Important non-blocking issues
+    3. Missing acceptance or falsification criteria
+    4. Scope creep risks
+    5. Concrete revision recommendations
+  codex: |
+    Review this plan as an adversarial Codex critic.
+    Focus on {{review_focus}} and reject shallow verification.
+    Return APPROVE, REVISE, or REJECT with concrete evidence.
