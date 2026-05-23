@@ -148,45 +148,68 @@ struct CommandPaletteView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Flint Command Palette")
-                .font(.title2.bold())
-            TextField("Search templates", text: $viewModel.query)
-                .textFieldStyle(.roundedBorder)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Flint Command Palette")
+                    .font(.title2.bold())
+                Text("Type a shortcut, pick a template, and expand it without leaving flow.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            GlassCard {
+                TextField("Search templates", text: $viewModel.query)
+                    .textFieldStyle(.roundedBorder)
+            }
 
             HSplitView {
-                List(viewModel.filteredTemplates, id: \.id, selection: Binding(
-                    get: { viewModel.selectedTemplate?.id },
-                    set: { selectedID in
-                        if let template = viewModel.filteredTemplates.first(where: { $0.id == selectedID }) {
-                            viewModel.select(template)
+                GlassCard {
+                    List(viewModel.filteredTemplates, id: \.id, selection: Binding(
+                        get: { viewModel.selectedTemplate?.id },
+                        set: { selectedID in
+                            if let template = viewModel.filteredTemplates.first(where: { $0.id == selectedID }) {
+                                viewModel.select(template)
+                            }
                         }
-                    }
-                )) { template in
-                    VStack(alignment: .leading) {
-                        Text(template.name).font(.headline)
-                        if let description = template.description {
-                            Text(description).font(.caption).foregroundStyle(.secondary)
+                    )) { template in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(template.name).font(.headline)
+                            if let description = template.description {
+                                Text(description).font(.caption).foregroundStyle(.secondary)
+                            }
                         }
+                        .padding(.vertical, 6)
+                        .listRowBackground(Color.clear)
                     }
-                    .padding(.vertical, 4)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
                 }
                 .frame(minWidth: 240)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Expanded prompt preview").font(.headline)
-                    ScrollView {
-                        Text(viewModel.renderedPrompt)
-                            .font(.system(.body, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 10) {
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Expanded prompt preview").font(.headline)
+                            ScrollView {
+                                Text(viewModel.renderedPrompt)
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
+                        }
                     }
-                    HStack {
-                        Button("Copy") { viewModel.copyRenderedPrompt() }
-                        Button("Insert or Copy") { viewModel.insertRenderedPrompt() }
+
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Button("Copy") { viewModel.copyRenderedPrompt() }
+                                Button("Insert or Copy") { viewModel.insertRenderedPrompt() }
+                            }
+                            Text(viewModel.statusMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    Text(viewModel.statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
                 .padding(.leading, 8)
             }
@@ -199,8 +222,11 @@ struct CommandPaletteView: View {
 
 private enum FlintGlassTheme {
     static let shellCornerRadius: CGFloat = 28
+    static let cardCornerRadius: CGFloat = 18
     static let shellStroke = Color.white.opacity(0.24)
+    static let cardStroke = Color.white.opacity(0.18)
     static let shellShadow = Color.black.opacity(0.28)
+    static let cardShadow = Color.black.opacity(0.14)
     static let accent = Color(red: 0.50, green: 0.78, blue: 1.00)
     static let secondaryAccent = Color(red: 0.72, green: 0.48, blue: 1.00)
 }
@@ -226,5 +252,34 @@ private struct FlintGlassShell: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: FlintGlassTheme.shellCornerRadius, style: .continuous))
         .shadow(color: FlintGlassTheme.shellShadow, radius: 30, x: 0, y: 18)
+    }
+}
+
+private struct GlassCard<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background {
+                RoundedRectangle(cornerRadius: FlintGlassTheme.cardCornerRadius, style: .continuous)
+                    .fill(.thinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: FlintGlassTheme.cardCornerRadius, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.12), Color.white.opacity(0.03)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: FlintGlassTheme.cardCornerRadius, style: .continuous)
+                            .strokeBorder(FlintGlassTheme.cardStroke, lineWidth: 1)
+                    }
+                    .shadow(color: FlintGlassTheme.cardShadow, radius: 14, x: 0, y: 8)
+            }
     }
 }
