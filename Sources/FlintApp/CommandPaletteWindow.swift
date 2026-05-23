@@ -3,6 +3,8 @@ import FlintCore
 import SwiftUI
 
 final class CommandPaletteWindowController: NSWindowController {
+    private static let minimumWindowSize = NSSize(width: 720, height: 520)
+
     private let repository: TemplateRepository
 
     init(repository: TemplateRepository) {
@@ -10,15 +12,21 @@ final class CommandPaletteWindowController: NSWindowController {
         let viewModel = CommandPaletteViewModel(repository: repository)
         let rootView = CommandPaletteView(viewModel: viewModel)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(origin: .zero, size: Self.minimumWindowSize),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Flint"
+        window.minSize = Self.minimumWindowSize
+        window.title = ""
         window.level = .floating
-        window.backgroundColor = .windowBackgroundColor
-        window.titlebarAppearsTransparent = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = .white
+        window.isOpaque = true
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.hasShadow = true
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: rootView)
         super.init(window: window)
@@ -149,52 +157,63 @@ struct CommandPaletteView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Flint Command Palette")
-                    .font(.title2.bold())
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(FlintGlassTheme.primaryText)
                 Text("Type a shortcut, pick a template, and copy it without leaving flow.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(FlintGlassTheme.secondaryText)
             }
 
             LiquidGlassPanel {
                 TextField("Search templates", text: $viewModel.query)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .searchFieldChrome()
             }
 
-            HSplitView {
+            HStack(alignment: .top, spacing: 10) {
                 LiquidGlassPanel(fillsHeight: true) {
-                    List(viewModel.filteredTemplates, id: \.id, selection: Binding(
-                        get: { viewModel.selectedTemplate?.id },
-                        set: { selectedID in
-                            if let template = viewModel.filteredTemplates.first(where: { $0.id == selectedID }) {
-                                viewModel.select(template)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(viewModel.filteredTemplates, id: \.id) { template in
+                                let isSelected = viewModel.selectedTemplate?.id == template.id
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(template.name)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(isSelected ? FlintGlassTheme.selectedText : FlintGlassTheme.primaryText)
+                                    if let description = template.description {
+                                        Text(description)
+                                            .font(.system(size: 12, weight: .regular))
+                                            .tracking(0.15)
+                                            .foregroundStyle(isSelected ? FlintGlassTheme.selectedMutedText : FlintGlassTheme.secondaryText)
+                                    }
+                                }
+                                .padding(.vertical, 12)
+                                .padding(.horizontal, 16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(selectionHighlight(for: template))
+                                .contentShape(RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous))
+                                .onTapGesture {
+                                    viewModel.select(template)
+                                }
                             }
                         }
-                    )) { template in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(template.name).font(.headline)
-                            if let description = template.description {
-                                Text(description).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 4)
-                        .background(selectionHighlight(for: template))
-                        .listRowBackground(Color.clear)
+                        .padding(.trailing, 2)
                     }
-                    .scrollContentBackground(.hidden)
                     .background(Color.clear)
                     .animation(.easeInOut(duration: 0.18), value: viewModel.selectedTemplate?.id)
                 }
-                .frame(minWidth: 240)
+                .frame(minWidth: 240, maxWidth: .infinity)
 
                 VStack(alignment: .leading, spacing: 10) {
                     LiquidGlassPanel(fillsHeight: true) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Expanded prompt preview").font(.headline)
+                            Text("Expanded prompt preview")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(FlintGlassTheme.primaryText)
                             ScrollView {
                                 Text(viewModel.renderedPrompt)
-                                    .font(.system(.body, design: .monospaced))
-                                    .foregroundStyle(.primary)
+                                    .font(.system(size: 13, weight: .regular, design: .monospaced))
+                                    .foregroundStyle(FlintGlassTheme.primaryText)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .textSelection(.enabled)
                             }
@@ -204,20 +223,23 @@ struct CommandPaletteView: View {
                     LiquidGlassPanel {
                         VStack(alignment: .leading, spacing: 8) {
                             Button("Copy") { viewModel.copyRenderedPrompt() }
-                                .buttonStyle(.borderedProminent)
-                                .tint(FlintGlassTheme.controlTint)
+                                .buttonStyle(FlintPillButtonStyle())
                             Text(viewModel.statusMessage)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundStyle(FlintGlassTheme.secondaryText)
                         }
                     }
                 }
-                .padding(.leading, 8)
+                .frame(minWidth: 240, maxWidth: .infinity)
             }
         }
-        .padding(16)
+        .padding(.top, 12)
+        .padding(.horizontal, 28)
+        .padding(.bottom, 22)
         .frame(minWidth: 680, minHeight: 460)
         .background(FlintWindowBackground())
+        .tint(FlintGlassTheme.controlTint)
+        .environment(\.colorScheme, .light)
         .opacity(didAppear ? 1 : 0)
         .offset(y: didAppear ? 0 : 8)
         .onAppear {
@@ -229,42 +251,52 @@ struct CommandPaletteView: View {
 
     @ViewBuilder
     private func selectionHighlight(for template: FlintTemplate) -> some View {
-        if viewModel.selectedTemplate?.id == template.id {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(FlintGlassTheme.selectionFill)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(FlintGlassTheme.selectionStroke, lineWidth: 1)
-                }
-        }
+        let isSelected = viewModel.selectedTemplate?.id == template.id
+        RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
+            .fill(isSelected ? FlintGlassTheme.selectionFill : FlintGlassTheme.rowFill)
+            .overlay {
+                RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
+                    .strokeBorder(isSelected ? FlintGlassTheme.selectionStroke : Color.clear, lineWidth: 1)
+            }
     }
 }
 
 private enum FlintGlassTheme {
-    static let panelCornerRadius: CGFloat = 18
-    static let panelStroke = Color.primary.opacity(0.10)
-    static let panelShadow = Color.black.opacity(0.10)
-    static let controlTint = Color.primary.opacity(0.86)
-    static let selectionFill = Color.primary.opacity(0.08)
-    static let selectionStroke = Color.primary.opacity(0.16)
+    static let panelCornerRadius: CGFloat = 12
+    static let standardCornerRadius: CGFloat = 999
+    static let primary = Color.black
+    static let inkDeep = Color(red: 0.035, green: 0.035, blue: 0.035)
+    static let canvas = Color.white
+    static let surfaceSoft = Color(red: 0.980, green: 0.980, blue: 0.980)
+    static let surfaceDark = Color(red: 0.090, green: 0.090, blue: 0.090)
+    static let hairline = Color(red: 0.898, green: 0.898, blue: 0.898)
+    static let hairlineStrong = Color(red: 0.831, green: 0.831, blue: 0.831)
+    static let bodyText = Color(red: 0.451, green: 0.451, blue: 0.451)
+    static let muteText = Color(red: 0.639, green: 0.639, blue: 0.639)
+    static let focusRing = Color(red: 0.231, green: 0.510, blue: 0.965).opacity(0.50)
+
+    static let windowBase = canvas
+    static let panelFill = canvas
+    static let panelStroke = hairline
+    static let panelShadow = Color.clear
+    static let primaryText = primary
+    static let secondaryText = bodyText
+    static let selectedText = primary
+    static let selectedMutedText = bodyText
+    static let controlTint = primary
+    static let searchFill = surfaceSoft
+    static let searchStroke = hairline
+    static let searchFocusStroke = focusRing
+    static let rowFill = surfaceSoft
+    static let selectionFill = canvas
+    static let selectionStroke = primary.opacity(0.72)
 }
 
 private struct FlintWindowBackground: View {
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(.regularMaterial)
-
-            LinearGradient(
-                colors: [
-                    Color.white.opacity(0.18),
-                    Color.primary.opacity(0.035),
-                    Color(nsColor: .windowBackgroundColor).opacity(0.78)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .allowsHitTesting(false)
+                .fill(FlintGlassTheme.windowBase)
         }
     }
 }
@@ -275,26 +307,64 @@ private struct LiquidGlassPanel<Content: View>: View {
 
     var body: some View {
         content
-            .padding(12)
+            .padding(16)
             .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
-                    .fill(.thinMaterial)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.10), Color.white.opacity(0.02)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    }
+                    .fill(FlintGlassTheme.panelFill)
                     .overlay {
                         RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
                             .strokeBorder(FlintGlassTheme.panelStroke, lineWidth: 1)
                     }
                     .shadow(color: FlintGlassTheme.panelShadow, radius: 10, x: 0, y: 4)
             }
+    }
+}
+
+private struct SearchFieldChrome: ViewModifier {
+    @FocusState private var isFocused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($isFocused)
+            .font(.system(size: 15))
+            .foregroundStyle(FlintGlassTheme.primaryText)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(FlintGlassTheme.searchFill)
+            }
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(
+                        isFocused ? FlintGlassTheme.searchFocusStroke : FlintGlassTheme.searchStroke,
+                        lineWidth: isFocused ? 2 : 1
+                    )
+            }
+            .animation(.easeInOut(duration: 0.12), value: isFocused)
+    }
+}
+
+private extension View {
+    func searchFieldChrome() -> some View {
+        modifier(SearchFieldChrome())
+    }
+}
+
+private struct FlintPillButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(FlintGlassTheme.canvas)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 20)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(configuration.isPressed ? FlintGlassTheme.inkDeep : FlintGlassTheme.controlTint)
+            }
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
