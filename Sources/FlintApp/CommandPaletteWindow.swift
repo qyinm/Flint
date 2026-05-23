@@ -11,16 +11,14 @@ final class CommandPaletteWindowController: NSWindowController {
         let rootView = CommandPaletteView(viewModel: viewModel)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.title = "Flint"
         window.level = .floating
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
+        window.backgroundColor = .windowBackgroundColor
+        window.titlebarAppearsTransparent = false
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: rootView)
         super.init(window: window)
@@ -135,10 +133,10 @@ final class CommandPaletteViewModel: ObservableObject {
         }
         do {
             renderedPrompt = try renderer.render(selectedTemplate, target: "generic")
-            statusMessage = "Previewing \\(selectedTemplate.name)."
+            statusMessage = "Previewing \(selectedTemplate.name)."
         } catch {
             renderedPrompt = ""
-            statusMessage = "Could not render template: \\(error)"
+            statusMessage = "Could not render template: \(error)"
         }
     }
 }
@@ -172,13 +170,13 @@ struct CommandPaletteView: View {
                     .shadow(color: FlintGlassTheme.accent.opacity(0.35), radius: 12, x: 0, y: 0)
             }
 
-            GlassCard {
+            LiquidGlassPanel {
                 TextField("Search templates", text: $viewModel.query)
                     .textFieldStyle(.roundedBorder)
             }
 
             HSplitView {
-                GlassCard {
+                LiquidGlassPanel(fillsHeight: true) {
                     List(viewModel.filteredTemplates, id: \.id, selection: Binding(
                         get: { viewModel.selectedTemplate?.id },
                         set: { selectedID in
@@ -205,7 +203,7 @@ struct CommandPaletteView: View {
                 .frame(minWidth: 240)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    GlassCard {
+                    LiquidGlassPanel(fillsHeight: true) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Expanded prompt preview").font(.headline)
                             ScrollView {
@@ -218,13 +216,14 @@ struct CommandPaletteView: View {
                         }
                     }
 
-                    GlassCard {
+                    LiquidGlassPanel {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Button("Copy") { viewModel.copyRenderedPrompt() }
-                                    .buttonStyle(GlassButtonStyle())
+                                    .buttonStyle(.bordered)
                                 Button("Insert or Copy") { viewModel.insertRenderedPrompt() }
-                                    .buttonStyle(GlassButtonStyle(isPrimary: true))
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(FlintGlassTheme.accent)
                             }
                             Text(viewModel.statusMessage)
                                 .font(.caption)
@@ -237,7 +236,7 @@ struct CommandPaletteView: View {
         }
         .padding(16)
         .frame(minWidth: 680, minHeight: 460)
-        .background(FlintGlassShell())
+        .background(FlintWindowBackground())
         .opacity(didAppear ? 1 : 0)
         .offset(y: didAppear ? 0 : 8)
         .onAppear {
@@ -261,103 +260,59 @@ struct CommandPaletteView: View {
 }
 
 private enum FlintGlassTheme {
-    static let shellCornerRadius: CGFloat = 28
-    static let cardCornerRadius: CGFloat = 18
-    static let shellStroke = Color.white.opacity(0.24)
-    static let cardStroke = Color.white.opacity(0.18)
-    static let shellShadow = Color.black.opacity(0.28)
-    static let cardShadow = Color.black.opacity(0.14)
-    static let accent = Color(red: 0.50, green: 0.78, blue: 1.00)
-    static let secondaryAccent = Color(red: 0.72, green: 0.48, blue: 1.00)
+    static let panelCornerRadius: CGFloat = 18
+    static let panelStroke = Color.white.opacity(0.20)
+    static let panelShadow = Color.black.opacity(0.08)
+    static let accent = Color(red: 0.34, green: 0.58, blue: 0.96)
+    static let secondaryAccent = Color(red: 0.64, green: 0.48, blue: 0.92)
 }
 
-private struct FlintGlassShell: View {
+private struct FlintWindowBackground: View {
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: FlintGlassTheme.shellCornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
+            Rectangle()
+                .fill(.regularMaterial)
 
             LinearGradient(
                 colors: [
-                    FlintGlassTheme.accent.opacity(0.28),
-                    FlintGlassTheme.secondaryAccent.opacity(0.16),
-                    Color.clear
+                    FlintGlassTheme.accent.opacity(0.14),
+                    FlintGlassTheme.secondaryAccent.opacity(0.08),
+                    Color(nsColor: .windowBackgroundColor).opacity(0.72)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-
-            RoundedRectangle(cornerRadius: FlintGlassTheme.shellCornerRadius, style: .continuous)
-                .strokeBorder(FlintGlassTheme.shellStroke, lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: FlintGlassTheme.shellCornerRadius, style: .continuous))
-        .shadow(color: FlintGlassTheme.shellShadow, radius: 30, x: 0, y: 18)
-        .overlay(alignment: .topLeading) {
-            Circle()
-                .fill(FlintGlassTheme.accent.opacity(0.20))
-                .frame(width: 180, height: 180)
-                .blur(radius: 54)
-                .offset(x: -44, y: -54)
-                .allowsHitTesting(false)
+            .allowsHitTesting(false)
         }
     }
 }
 
-private struct GlassCard<Content: View>: View {
+private struct LiquidGlassPanel<Content: View>: View {
+    var fillsHeight = false
     @ViewBuilder var content: Content
 
     var body: some View {
         content
             .padding(12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
             .background {
-                RoundedRectangle(cornerRadius: FlintGlassTheme.cardCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
                     .fill(.thinMaterial)
                     .overlay {
-                        RoundedRectangle(cornerRadius: FlintGlassTheme.cardCornerRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
                             .fill(
                                 LinearGradient(
-                                    colors: [Color.white.opacity(0.12), Color.white.opacity(0.03)],
+                                    colors: [Color.white.opacity(0.10), Color.white.opacity(0.02)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
                     }
                     .overlay {
-                        RoundedRectangle(cornerRadius: FlintGlassTheme.cardCornerRadius, style: .continuous)
-                            .strokeBorder(FlintGlassTheme.cardStroke, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
+                            .strokeBorder(FlintGlassTheme.panelStroke, lineWidth: 1)
                     }
-                    .shadow(color: FlintGlassTheme.cardShadow, radius: 14, x: 0, y: 8)
+                    .shadow(color: FlintGlassTheme.panelShadow, radius: 10, x: 0, y: 4)
             }
-    }
-}
-
-private struct GlassButtonStyle: ButtonStyle {
-    var isPrimary = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.callout.weight(.semibold))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .foregroundStyle(isPrimary ? Color.white : .primary)
-            .background {
-                Capsule()
-                    .fill(isPrimary ? FlintGlassTheme.accent.opacity(0.42) : Color.white.opacity(0.10))
-                    .overlay {
-                        Capsule().strokeBorder(
-                            isPrimary ? FlintGlassTheme.accent.opacity(0.55) : Color.white.opacity(0.20),
-                            lineWidth: 1
-                        )
-                    }
-            }
-            .shadow(
-                color: isPrimary ? FlintGlassTheme.accent.opacity(configuration.isPressed ? 0.10 : 0.26) : .clear,
-                radius: configuration.isPressed ? 4 : 10,
-                x: 0,
-                y: 0
-            )
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
