@@ -147,27 +147,12 @@ struct CommandPaletteView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Flint Command Palette")
-                        .font(.title2.bold())
-                    Text("Type a shortcut, pick a template, and expand it without leaving flow.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Text("AI native")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(FlintGlassTheme.accent)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(FlintGlassTheme.accent.opacity(0.13)))
-                    .overlay {
-                        Capsule().strokeBorder(FlintGlassTheme.accent.opacity(0.35), lineWidth: 1)
-                    }
-                    .shadow(color: FlintGlassTheme.accent.opacity(0.35), radius: 12, x: 0, y: 0)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Flint Command Palette")
+                    .font(.title2.bold())
+                Text("Type a shortcut, pick a template, and copy it without leaving flow.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             LiquidGlassPanel {
@@ -218,13 +203,9 @@ struct CommandPaletteView: View {
 
                     LiquidGlassPanel {
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Button("Copy") { viewModel.copyRenderedPrompt() }
-                                    .buttonStyle(.bordered)
-                                Button("Insert or Copy") { viewModel.insertRenderedPrompt() }
-                                    .buttonStyle(.borderedProminent)
-                                    .tint(FlintGlassTheme.accent)
-                            }
+                            Button("Copy") { viewModel.copyRenderedPrompt() }
+                                .buttonStyle(.borderedProminent)
+                                .tint(FlintGlassTheme.accent)
                             Text(viewModel.statusMessage)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
