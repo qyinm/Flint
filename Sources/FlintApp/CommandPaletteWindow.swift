@@ -145,15 +145,31 @@ final class CommandPaletteViewModel: ObservableObject {
 
 struct CommandPaletteView: View {
     @ObservedObject var viewModel: CommandPaletteViewModel
+    @State private var didAppear = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Flint Command Palette")
-                    .font(.title2.bold())
-                Text("Type a shortcut, pick a template, and expand it without leaving flow.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Flint Command Palette")
+                        .font(.title2.bold())
+                    Text("Type a shortcut, pick a template, and expand it without leaving flow.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text("AI native")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(FlintGlassTheme.accent)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(FlintGlassTheme.accent.opacity(0.13)))
+                    .overlay {
+                        Capsule().strokeBorder(FlintGlassTheme.accent.opacity(0.35), lineWidth: 1)
+                    }
+                    .shadow(color: FlintGlassTheme.accent.opacity(0.35), radius: 12, x: 0, y: 0)
             }
 
             GlassCard {
@@ -178,10 +194,13 @@ struct CommandPaletteView: View {
                             }
                         }
                         .padding(.vertical, 6)
+                        .padding(.horizontal, 4)
+                        .background(selectionHighlight(for: template))
                         .listRowBackground(Color.clear)
                     }
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
+                    .animation(.easeInOut(duration: 0.18), value: viewModel.selectedTemplate?.id)
                 }
                 .frame(minWidth: 240)
 
@@ -203,7 +222,9 @@ struct CommandPaletteView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Button("Copy") { viewModel.copyRenderedPrompt() }
+                                    .buttonStyle(GlassButtonStyle())
                                 Button("Insert or Copy") { viewModel.insertRenderedPrompt() }
+                                    .buttonStyle(GlassButtonStyle(isPrimary: true))
                             }
                             Text(viewModel.statusMessage)
                                 .font(.caption)
@@ -217,6 +238,25 @@ struct CommandPaletteView: View {
         .padding(16)
         .frame(minWidth: 680, minHeight: 460)
         .background(FlintGlassShell())
+        .opacity(didAppear ? 1 : 0)
+        .offset(y: didAppear ? 0 : 8)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.22)) {
+                didAppear = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func selectionHighlight(for template: FlintTemplate) -> some View {
+        if viewModel.selectedTemplate?.id == template.id {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(FlintGlassTheme.accent.opacity(0.12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(FlintGlassTheme.accent.opacity(0.28), lineWidth: 1)
+                }
+        }
     }
 }
 
@@ -239,8 +279,8 @@ private struct FlintGlassShell: View {
 
             LinearGradient(
                 colors: [
-                    FlintGlassTheme.accent.opacity(0.22),
-                    FlintGlassTheme.secondaryAccent.opacity(0.12),
+                    FlintGlassTheme.accent.opacity(0.28),
+                    FlintGlassTheme.secondaryAccent.opacity(0.16),
                     Color.clear
                 ],
                 startPoint: .topLeading,
@@ -252,6 +292,14 @@ private struct FlintGlassShell: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: FlintGlassTheme.shellCornerRadius, style: .continuous))
         .shadow(color: FlintGlassTheme.shellShadow, radius: 30, x: 0, y: 18)
+        .overlay(alignment: .topLeading) {
+            Circle()
+                .fill(FlintGlassTheme.accent.opacity(0.20))
+                .frame(width: 180, height: 180)
+                .blur(radius: 54)
+                .offset(x: -44, y: -54)
+                .allowsHitTesting(false)
+        }
     }
 }
 
@@ -281,5 +329,35 @@ private struct GlassCard<Content: View>: View {
                     }
                     .shadow(color: FlintGlassTheme.cardShadow, radius: 14, x: 0, y: 8)
             }
+    }
+}
+
+private struct GlassButtonStyle: ButtonStyle {
+    var isPrimary = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.callout.weight(.semibold))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .foregroundStyle(isPrimary ? Color.white : .primary)
+            .background {
+                Capsule()
+                    .fill(isPrimary ? FlintGlassTheme.accent.opacity(0.42) : Color.white.opacity(0.10))
+                    .overlay {
+                        Capsule().strokeBorder(
+                            isPrimary ? FlintGlassTheme.accent.opacity(0.55) : Color.white.opacity(0.20),
+                            lineWidth: 1
+                        )
+                    }
+            }
+            .shadow(
+                color: isPrimary ? FlintGlassTheme.accent.opacity(configuration.isPressed ? 0.10 : 0.26) : .clear,
+                radius: configuration.isPressed ? 4 : 10,
+                x: 0,
+                y: 0
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
