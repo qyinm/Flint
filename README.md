@@ -1,10 +1,69 @@
 # Flint
 
-Flint is a macOS input layer for AI prompt workflows.
+<p align="center">
+  <strong>AI prompt templates from anywhere on macOS.</strong>
+</p>
 
-Type or say a short trigger, and Flint expands it into the right prompt template for the tool you are using: ChatGPT, Claude, Codex, Hermes, Cursor, or a generic text field.
+<p align="center">
+  <a href="https://github.com/qyinm/Flint"><img alt="Platform" src="https://img.shields.io/badge/platform-macOS%2014%2B-black"></a>
+  <a href="https://www.swift.org"><img alt="Swift" src="https://img.shields.io/badge/Swift-6.0-orange"></a>
+  <img alt="Status" src="https://img.shields.io/badge/status-dogfood%20prototype-blue">
+  <img alt="License" src="https://img.shields.io/badge/license-TBD-lightgrey">
+</p>
 
-The goal is not to build another chatbot. Flint sits before the chatbot: it helps you invoke reusable AI prompts from anywhere.
+Flint is a native macOS input layer for reusable AI prompt workflows. Type a short trigger like `:debug` or open a command palette, and Flint expands it into the right local prompt template for ChatGPT, Claude, Codex, Cursor, or any text field.
+
+Flint is not another chatbot. It sits before the chatbot so prompt-heavy builders can stop copy-pasting the same review, debug, planning, and Codex task prompts.
+
+## What works today
+
+- Native macOS menu bar app
+- Global hotkey command palette: `⌘⇧Space`
+- Local YAML prompt templates
+- Espanso-style typed triggers such as `:debug`, `:review`, `:plan`, `:codex`, and `:critic`
+- Clipboard-first expansion with paste fallback
+- Swift-tested template renderer
+
+## Quick start
+
+```bash
+git clone git@github.com:qyinm/Flint.git
+cd Flint
+swift run FlintApp
+```
+
+Then type one of the built-in triggers in any text field:
+
+| Trigger | Template |
+| --- | --- |
+| `:debug` | Bug Debugger |
+| `:review` | Code Review |
+| `:plan` | Implementation Plan |
+| `:codex` | Codex Task |
+| `:critic` | PRD Critic |
+
+You can also click the menu bar item named `Flint` or press `⌘⇧Space` to open the command palette.
+
+## macOS permissions
+
+Typed trigger expansion uses a global keyboard event tap and simulated paste. macOS may require permission for the terminal or app process used to launch Flint.
+
+Open:
+
+```text
+System Settings → Privacy & Security → Accessibility
+```
+
+Enable the terminal app you used to run `swift run FlintApp` (`Terminal`, `iTerm`, etc.). If trigger expansion is unavailable, the menu bar command palette and copy flow still work.
+
+## Development
+
+```bash
+swift build
+swift test
+```
+
+Current automated coverage focuses on template loading, trigger parsing, variable defaults, target-specific rendering, and placeholder replacement.
 
 ## Why Flint
 
