@@ -17,6 +17,10 @@ final class CommandPaletteWindowController: NSWindowController {
         )
         window.title = "Flint"
         window.level = .floating
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: rootView)
         super.init(window: window)
@@ -189,5 +193,38 @@ struct CommandPaletteView: View {
         }
         .padding(16)
         .frame(minWidth: 680, minHeight: 460)
+        .background(FlintGlassShell())
+    }
+}
+
+private enum FlintGlassTheme {
+    static let shellCornerRadius: CGFloat = 28
+    static let shellStroke = Color.white.opacity(0.24)
+    static let shellShadow = Color.black.opacity(0.28)
+    static let accent = Color(red: 0.50, green: 0.78, blue: 1.00)
+    static let secondaryAccent = Color(red: 0.72, green: 0.48, blue: 1.00)
+}
+
+private struct FlintGlassShell: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: FlintGlassTheme.shellCornerRadius, style: .continuous)
+                .fill(.ultraThinMaterial)
+
+            LinearGradient(
+                colors: [
+                    FlintGlassTheme.accent.opacity(0.22),
+                    FlintGlassTheme.secondaryAccent.opacity(0.12),
+                    Color.clear
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            RoundedRectangle(cornerRadius: FlintGlassTheme.shellCornerRadius, style: .continuous)
+                .strokeBorder(FlintGlassTheme.shellStroke, lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: FlintGlassTheme.shellCornerRadius, style: .continuous))
+        .shadow(color: FlintGlassTheme.shellShadow, radius: 30, x: 0, y: 18)
     }
 }
