@@ -10,7 +10,11 @@ let package = Package(
     ],
     targets: [
         .target(name: "FlintCore"),
-        .executableTarget(name: "FlintApp", dependencies: ["FlintCore"]),
+        .executableTarget(
+            name: "FlintApp",
+            dependencies: ["FlintCore"],
+            resources: [.process("Resources")]
+        ),
         .testTarget(name: "FlintCoreTests", dependencies: ["FlintCore"])
     ]
 )
