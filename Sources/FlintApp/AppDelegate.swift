@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var paletteController: CommandPaletteWindowController?
     private var hotKeyController: HotKeyController?
+    private var typedTriggerExpander: TypedTriggerExpander?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -15,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.hotKeyController = HotKeyController { [weak paletteController] in
             paletteController?.togglePalette()
         }
+        startTypedTriggerExpander(repository: repository)
         setupStatusItem()
     }
 
@@ -29,6 +31,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit Flint", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu
         self.statusItem = statusItem
+    }
+
+    private func startTypedTriggerExpander(repository: TemplateRepository) {
+        let expander = TypedTriggerExpander(repository: repository)
+        do {
+            try expander.start()
+            typedTriggerExpander = expander
+        } catch {
+            NSLog("Flint typed trigger expansion disabled: \(error)")
+        }
     }
 
     @objc private func openPalette() {

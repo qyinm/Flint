@@ -73,13 +73,18 @@ Scope:
 4. User selects a template
 5. App inserts expanded text into the active app via Accessibility API or clipboard fallback
 
+The dogfood path should also support espanso-style typed triggers such as
+`:debug`, `:review`, `:plan`, `:codex`, and `:critic`. When Flint is running
+with Accessibility permission, typing a trigger in any text field should replace
+the trigger with the rendered local template.
+
 Out of scope:
 
-- typed trigger expansion
 - voice trigger invocation
 - AI transformations
 - marketplace
 - sync
+- typed trigger customization UI
 
 ### v0.1 — Typed Trigger Expansion
 

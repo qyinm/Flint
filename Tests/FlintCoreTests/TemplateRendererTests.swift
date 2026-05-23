@@ -71,12 +71,23 @@ struct TemplateRendererTests {
         let templates = try TemplateLoader.loadTemplates(from: templatesURL)
         #expect(templates.count == 5)
         #expect(templates.allSatisfy { $0.targets["generic"] != nil })
+        #expect(templates.flatMap(\.triggers.typed).contains(":debug"))
+    }
+
+    @Test("parses typed and spoken triggers")
+    func parsesTriggers() throws {
+        let template = try TemplateLoader.parse(Self.sampleTemplate)
+        #expect(template.triggers.typed == [":review"])
+        #expect(template.triggers.spoken == ["review prompt"])
     }
 
     private static let sampleTemplate = """
     schema_version: 1
     id: review
     name: Review
+    triggers:
+      typed: [":review"]
+      spoken: ["review prompt"]
     variables:
       focus:
         default: "correctness, tests"

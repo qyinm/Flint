@@ -1,6 +1,16 @@
 import Foundation
 
 public struct FlintTemplate: Equatable, Sendable {
+    public struct Triggers: Equatable, Sendable {
+        public let typed: [String]
+        public let spoken: [String]
+
+        public init(typed: [String] = [], spoken: [String] = []) {
+            self.typed = typed
+            self.spoken = spoken
+        }
+    }
+
     public struct Variable: Equatable, Sendable {
         public let defaultValue: String?
 
@@ -13,6 +23,7 @@ public struct FlintTemplate: Equatable, Sendable {
     public let id: String
     public let name: String
     public let description: String?
+    public let triggers: Triggers
     public let variables: [String: Variable]
     public let targets: [String: String]
 
@@ -21,6 +32,7 @@ public struct FlintTemplate: Equatable, Sendable {
         id: String,
         name: String,
         description: String? = nil,
+        triggers: Triggers = Triggers(),
         variables: [String: Variable] = [:],
         targets: [String: String]
     ) {
@@ -28,6 +40,7 @@ public struct FlintTemplate: Equatable, Sendable {
         self.id = id
         self.name = name
         self.description = description
+        self.triggers = triggers
         self.variables = variables
         self.targets = targets
     }

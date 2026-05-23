@@ -22,6 +22,7 @@ public enum TemplateLoader {
         var id: String?
         var name: String?
         var description: String?
+        var triggers = FlintTemplate.Triggers()
         var variables: [String: FlintTemplate.Variable] = [:]
         var targets: [String: String] = [:]
 
@@ -46,6 +47,24 @@ public enum TemplateLoader {
             } else if let value = topLevelValue(trimmed, key: "description") {
                 description = unquote(value)
                 index += 1
+            } else if trimmed == "triggers:" {
+                var typed: [String] = []
+                var spoken: [String] = []
+                index += 1
+                while index < lines.count {
+                    let triggerLine = lines[index]
+                    let triggerTrimmed = triggerLine.trimmingCharacters(in: .whitespaces)
+                    if indentation(of: triggerLine) == 0 { break }
+                    if indentation(of: triggerLine) == 2 {
+                        if let value = topLevelValue(triggerTrimmed, key: "typed") {
+                            typed = parseInlineStringArray(value)
+                        } else if let value = topLevelValue(triggerTrimmed, key: "spoken") {
+                            spoken = parseInlineStringArray(value)
+                        }
+                    }
+                    index += 1
+                }
+                triggers = FlintTemplate.Triggers(typed: typed, spoken: spoken)
             } else if trimmed == "variables:" {
                 index += 1
                 while index < lines.count {
@@ -103,6 +122,7 @@ public enum TemplateLoader {
             id: id,
             name: name,
             description: description,
+            triggers: triggers,
             variables: variables,
             targets: targets
         )
@@ -131,5 +151,16 @@ public enum TemplateLoader {
             value.removeLast()
         }
         return value
+    }
+
+    private static func parseInlineStringArray(_ value: String) -> [String] {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("["), trimmed.hasSuffix("]") else { return [] }
+        let body = trimmed.dropFirst().dropLast()
+        guard !body.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+        return body
+            .split(separator: ",")
+            .map { unquote(String($0).trimmingCharacters(in: .whitespaces)) }
+            .filter { !$0.isEmpty }
     }
 }
