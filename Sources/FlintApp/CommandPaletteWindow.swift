@@ -205,7 +205,7 @@ struct CommandPaletteView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Button("Copy") { viewModel.copyRenderedPrompt() }
                                 .buttonStyle(.borderedProminent)
-                                .tint(FlintGlassTheme.accent)
+                                .tint(FlintGlassTheme.controlTint)
                             Text(viewModel.statusMessage)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -231,10 +231,10 @@ struct CommandPaletteView: View {
     private func selectionHighlight(for template: FlintTemplate) -> some View {
         if viewModel.selectedTemplate?.id == template.id {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(FlintGlassTheme.accent.opacity(0.12))
+                .fill(FlintGlassTheme.selectionFill)
                 .overlay {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(FlintGlassTheme.accent.opacity(0.28), lineWidth: 1)
+                        .strokeBorder(FlintGlassTheme.selectionStroke, lineWidth: 1)
                 }
         }
     }
@@ -242,10 +242,11 @@ struct CommandPaletteView: View {
 
 private enum FlintGlassTheme {
     static let panelCornerRadius: CGFloat = 18
-    static let panelStroke = Color.white.opacity(0.20)
-    static let panelShadow = Color.black.opacity(0.08)
-    static let accent = Color(red: 0.34, green: 0.58, blue: 0.96)
-    static let secondaryAccent = Color(red: 0.64, green: 0.48, blue: 0.92)
+    static let panelStroke = Color.primary.opacity(0.10)
+    static let panelShadow = Color.black.opacity(0.10)
+    static let controlTint = Color.primary.opacity(0.86)
+    static let selectionFill = Color.primary.opacity(0.08)
+    static let selectionStroke = Color.primary.opacity(0.16)
 }
 
 private struct FlintWindowBackground: View {
@@ -256,9 +257,9 @@ private struct FlintWindowBackground: View {
 
             LinearGradient(
                 colors: [
-                    FlintGlassTheme.accent.opacity(0.14),
-                    FlintGlassTheme.secondaryAccent.opacity(0.08),
-                    Color(nsColor: .windowBackgroundColor).opacity(0.72)
+                    Color.white.opacity(0.18),
+                    Color.primary.opacity(0.035),
+                    Color(nsColor: .windowBackgroundColor).opacity(0.78)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
