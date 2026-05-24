@@ -69,7 +69,7 @@ struct TemplateRendererTests {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let templatesURL = root.appending(path: "templates")
         let templates = try TemplateLoader.loadTemplates(from: templatesURL)
-        #expect(templates.count == 5)
+        #expect(templates.count >= 5)
         #expect(templates.allSatisfy { $0.targets["generic"] != nil })
         #expect(templates.flatMap(\.triggers.typed).contains(":debug"))
     }

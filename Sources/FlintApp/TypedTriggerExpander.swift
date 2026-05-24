@@ -4,6 +4,8 @@ import FlintCore
 
 @MainActor
 final class TypedTriggerExpander {
+    static let templatesDidChangeNotification = Notification.Name("FlintTemplatesDidChange")
+
     enum ExpanderError: Error, CustomStringConvertible {
         case accessibilityPermissionDenied
         case eventTapUnavailable
@@ -26,6 +28,7 @@ final class TypedTriggerExpander {
     private var expansions: [String: String] = [:]
     private var maximumTriggerLength = 0
     private var isExpanding = false
+    private var templatesDidChangeObserver: NSObjectProtocol?
 
     init(repository: TemplateRepository) {
         self.repository = repository
@@ -61,9 +64,14 @@ final class TypedTriggerExpander {
         CGEvent.tapEnable(tap: eventTap, enable: true)
         self.eventTap = eventTap
         self.runLoopSource = source
+        installTemplatesDidChangeObserver()
     }
 
     func stop() {
+        if let templatesDidChangeObserver {
+            NotificationCenter.default.removeObserver(templatesDidChangeObserver)
+        }
+        templatesDidChangeObserver = nil
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
         }
@@ -74,7 +82,7 @@ final class TypedTriggerExpander {
         runLoopSource = nil
     }
 
-    private func reloadExpansions() throws {
+    func reloadExpansions() throws {
         let templates = try repository.loadTemplates()
         expansions = Dictionary(
             uniqueKeysWithValues: try templates.flatMap { template in
@@ -84,6 +92,23 @@ final class TypedTriggerExpander {
             }
         )
         maximumTriggerLength = expansions.keys.map(\.count).max() ?? 0
+    }
+
+    private func installTemplatesDidChangeObserver() {
+        templatesDidChangeObserver = NotificationCenter.default.addObserver(
+            forName: Self.templatesDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                do {
+                    try self.reloadExpansions()
+                } catch {
+                    NSLog("Flint could not reload typed trigger expansions: \(error)")
+                }
+            }
+        }
     }
 
     private nonisolated func handle(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {

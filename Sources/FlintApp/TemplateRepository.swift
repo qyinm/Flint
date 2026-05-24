@@ -45,6 +45,50 @@ struct TemplateRepository {
             throw error
         }
     }
+
+    func createTemplate(name: String, typedTrigger: String, prompt: String) throws -> TemplateRecord {
+        let templateName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trigger = typedTrigger.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = Self.slug(for: templateName.isEmpty ? "template" : templateName)
+        let url = uniqueTemplateURL(for: id)
+        let template = FlintTemplate(
+            schemaVersion: 1,
+            id: url.deletingPathExtension().lastPathComponent,
+            name: templateName,
+            triggers: FlintTemplate.Triggers(typed: trigger.isEmpty ? [] : [trigger]),
+            targets: ["generic": body]
+        )
+        let document = TemplateYAMLDocument(
+            template: template,
+            targetOrder: ["generic"],
+            variableOrder: []
+        )
+        let record = TemplateRecord(url: url, document: document)
+        try save(EditableTemplateDraft(document: document), for: record)
+        return record
+    }
+
+    private func uniqueTemplateURL(for id: String) -> URL {
+        var candidate = templatesURL.appendingPathComponent("\(id).yaml")
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = templatesURL.appendingPathComponent("\(id)-\(suffix).yaml")
+            suffix += 1
+        }
+        return candidate
+    }
+
+    private static func slug(for value: String) -> String {
+        let lowered = value.lowercased()
+        let scalars = lowered.unicodeScalars.map { scalar in
+            CharacterSet.alphanumerics.contains(scalar) ? Character(scalar) : "-"
+        }
+        let collapsed = String(scalars)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return collapsed.isEmpty ? "template" : collapsed
+    }
 }
 
 struct TemplateRecord: Identifiable, Equatable {

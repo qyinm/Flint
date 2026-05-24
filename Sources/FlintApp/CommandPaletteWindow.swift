@@ -2,6 +2,11 @@ import AppKit
 import FlintCore
 import SwiftUI
 
+final class CommandPaletteWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 final class CommandPaletteWindowController: NSWindowController {
     private static let windowSize = NSSize(width: 760, height: 480)
 
@@ -14,7 +19,7 @@ final class CommandPaletteWindowController: NSWindowController {
         let viewModel = CommandPaletteViewModel(repository: repository)
         self.viewModel = viewModel
         let rootView = CommandPaletteView(viewModel: viewModel)
-        let window = NSWindow(
+        let window = CommandPaletteWindow(
             contentRect: NSRect(origin: .zero, size: Self.windowSize),
             styleMask: [.borderless],
             backing: .buffered,
@@ -46,6 +51,7 @@ final class CommandPaletteWindowController: NSWindowController {
     func showPalette() {
         if let hostingView = window?.contentView as? NSHostingView<CommandPaletteView> {
             hostingView.rootView.viewModel.reloadFromRepository()
+            hostingView.rootView.viewModel.showCommandList()
         }
         window?.center()
         window?.makeKeyAndOrderFront(nil)
@@ -72,6 +78,15 @@ final class CommandPaletteWindowController: NSWindowController {
     private func installKeyboardMonitor() {
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.window?.isVisible == true else { return event }
+            if event.modifierFlags.contains(.command), event.keyCode == 45 {
+                self.viewModel.showNewTemplatePage()
+                return nil
+            }
+            if event.modifierFlags.contains(.command), event.keyCode == 1 {
+                self.viewModel.createDraftTemplate()
+                return nil
+            }
+            guard self.viewModel.page == .commandList else { return event }
             switch event.keyCode {
             case 125:
                 self.viewModel.moveSelectionDown()
@@ -98,11 +113,20 @@ final class CommandPaletteWindowController: NSWindowController {
 
 @MainActor
 final class CommandPaletteViewModel: ObservableObject {
+    enum Page {
+        case commandList
+        case newTemplate
+    }
+
+    @Published var page: Page = .commandList
     @Published var query = ""
     @Published private(set) var records: [TemplateRecord] = []
     @Published var selectedRecord: TemplateRecord?
     @Published var renderedPrompt = ""
     @Published var statusMessage = "Copy"
+    @Published var draftName = ""
+    @Published var draftTrigger = ""
+    @Published var draftPrompt = ""
 
     private let repository: TemplateRepository
     private let renderer = TemplateRenderer()
@@ -132,6 +156,15 @@ final class CommandPaletteViewModel: ObservableObject {
         selectedRecord?.template.name ?? "No template"
     }
 
+    var isShowingNewTemplatePage: Bool {
+        page == .newTemplate
+    }
+
+    var canCreateDraftTemplate: Bool {
+        !draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !draftPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var selectableRecords: [TemplateRecord] {
         filteredRecords.isEmpty ? records : filteredRecords
     }
@@ -153,6 +186,41 @@ final class CommandPaletteViewModel: ObservableObject {
         }
     }
 
+    func showCommandList() {
+        page = .commandList
+        statusMessage = selectedRecord.map { "Copy \($0.template.name)" } ?? "Copy"
+    }
+
+    func showNewTemplatePage() {
+        page = .newTemplate
+        statusMessage = "New template"
+    }
+
+    func createDraftTemplate() {
+        guard page == .newTemplate else { return }
+        guard canCreateDraftTemplate else {
+            statusMessage = "Name and prompt are required"
+            return
+        }
+        do {
+            let created = try repository.createTemplate(
+                name: draftName,
+                typedTrigger: draftTrigger,
+                prompt: draftPrompt
+            )
+            draftName = ""
+            draftTrigger = ""
+            draftPrompt = ""
+            NotificationCenter.default.post(name: TypedTriggerExpander.templatesDidChangeNotification, object: nil)
+            reloadFromRepository()
+            select(records.first { $0.id == created.id } ?? created)
+            showCommandList()
+            statusMessage = "Created \(selectedRecordDisplayName)"
+        } catch {
+            statusMessage = "Could not create template: \(error)"
+        }
+    }
+
     func select(_ record: TemplateRecord?) {
         selectedRecord = record
         guard let template = record?.template else {
@@ -170,6 +238,10 @@ final class CommandPaletteViewModel: ObservableObject {
     }
 
     func copySelectedPrompt() {
+        guard page == .commandList else {
+            statusMessage = "New template"
+            return
+        }
         guard !renderedPrompt.isEmpty else {
             statusMessage = "Nothing to copy"
             return
@@ -179,10 +251,12 @@ final class CommandPaletteViewModel: ObservableObject {
     }
 
     func moveSelectionDown() {
+        guard page == .commandList else { return }
         moveSelection(by: 1)
     }
 
     func moveSelectionUp() {
+        guard page == .commandList else { return }
         moveSelection(by: -1)
     }
 
@@ -202,18 +276,30 @@ final class CommandPaletteViewModel: ObservableObject {
 }
 
 struct CommandPaletteView: View {
+    enum FocusTarget {
+        case search
+        case draftName
+        case draftTrigger
+        case draftPrompt
+    }
+
     @ObservedObject var viewModel: CommandPaletteViewModel
-    @FocusState private var searchFocused: Bool
+    @FocusState private var focusedField: FocusTarget?
     @State private var didAppear = false
 
     var body: some View {
         VStack(spacing: 0) {
             searchHeader
             Divider()
-            commandList
-            Spacer(minLength: 0)
-            Divider()
-            actionBar
+            if viewModel.isShowingNewTemplatePage {
+                newTemplatePage
+                Spacer(minLength: 0)
+            } else {
+                commandList
+                Spacer(minLength: 0)
+                Divider()
+                actionBar
+            }
         }
         .frame(width: 760, height: 480)
         .background {
@@ -242,41 +328,164 @@ struct CommandPaletteView: View {
         .opacity(didAppear ? 1 : 0)
         .offset(y: didAppear ? 0 : 8)
         .onAppear {
-            searchFocused = true
+            focusedField = viewModel.isShowingNewTemplatePage ? .draftName : .search
             withAnimation(.easeOut(duration: 0.16)) {
                 didAppear = true
+            }
+        }
+        .onChange(of: viewModel.page) { _, page in
+            DispatchQueue.main.async {
+                focusedField = page == .newTemplate ? .draftName : .search
             }
         }
     }
 
     private var searchHeader: some View {
         HStack(spacing: 12) {
-            TextField("Search prompts and commands...", text: $viewModel.query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(FlintTheme.primaryText)
-                .focused($searchFocused)
-                .onChange(of: viewModel.query) { _, _ in
-                    viewModel.select(viewModel.filteredRecords.first ?? viewModel.records.first)
+            if viewModel.isShowingNewTemplatePage {
+                Button {
+                    viewModel.showCommandList()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
                 }
-
-            Text("Tab")
-                .font(.system(size: 13, weight: .semibold))
+                .buttonStyle(.plain)
                 .foregroundStyle(FlintTheme.secondaryText)
-                .padding(.vertical, 4)
-                .padding(.horizontal, 8)
-                .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(FlintTheme.badgeFill)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .strokeBorder(FlintTheme.badgeStroke, lineWidth: 1)
-                        }
+
+                Text("New Template")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(FlintTheme.primaryText)
+                Spacer()
+                Button {
+                    viewModel.createDraftTemplate()
+                } label: {
+                    HStack(spacing: 7) {
+                        Text("Create")
+                            .font(.system(size: 13, weight: .semibold))
+                        KeyBadge("⌘")
+                        KeyBadge("S")
+                    }
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(
+                    viewModel.canCreateDraftTemplate ? FlintTheme.primaryText : FlintTheme.mutedText
+                )
+                .disabled(!viewModel.canCreateDraftTemplate)
+            } else {
+                TextField("Search prompts and commands...", text: $viewModel.query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(FlintTheme.primaryText)
+                    .focused($focusedField, equals: .search)
+                    .onChange(of: viewModel.query) { _, _ in
+                        viewModel.select(viewModel.filteredRecords.first ?? viewModel.records.first)
+                    }
+
+                Button {
+                    viewModel.showNewTemplatePage()
+                } label: {
+                    HStack(spacing: 7) {
+                        Text("New Template")
+                            .font(.system(size: 13, weight: .semibold))
+                        KeyBadge("⌘")
+                        KeyBadge("N")
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(FlintTheme.secondaryText)
+            }
         }
         .padding(.leading, 22)
         .padding(.trailing, 18)
         .frame(height: 64)
+    }
+
+    private var newTemplatePage: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                templateDraftField(
+                    title: "Name",
+                    placeholder: "Untitled Template",
+                    text: $viewModel.draftName,
+                    focusTarget: .draftName
+                )
+                templateDraftField(
+                    title: "Trigger",
+                    placeholder: ":shortcut",
+                    text: $viewModel.draftTrigger,
+                    focusTarget: .draftTrigger
+                )
+                templateDraftEditor(
+                    title: "Prompt",
+                    placeholder: "Write the reusable prompt body...",
+                    text: $viewModel.draftPrompt
+                )
+            }
+        }
+        .padding(.top, 20)
+        .padding(.horizontal, 24)
+    }
+
+    private func templateDraftField(
+        title: String,
+        placeholder: String,
+        text: Binding<String>,
+        focusTarget: FocusTarget
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(FlintTheme.secondaryText)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(FlintTheme.primaryText)
+                .focused($focusedField, equals: focusTarget)
+                .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+                .padding(.horizontal, 12)
+                .background {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(FlintTheme.fieldFill)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(FlintTheme.hairline, lineWidth: 1)
+                        }
+                }
+        }
+    }
+
+    private func templateDraftEditor(title: String, placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(FlintTheme.secondaryText)
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: text)
+                    .font(.system(size: 15, weight: .regular, design: .monospaced))
+                    .foregroundStyle(FlintTheme.primaryText)
+                    .scrollContentBackground(.hidden)
+                    .focused($focusedField, equals: .draftPrompt)
+                    .padding(8)
+
+                if text.wrappedValue.isEmpty {
+                    Text(placeholder)
+                        .font(.system(size: 15, weight: .regular, design: .monospaced))
+                        .foregroundStyle(FlintTheme.mutedText)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 15)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(FlintTheme.fieldFill)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(FlintTheme.hairline, lineWidth: 1)
+                    }
+            }
+        }
     }
 
     private var commandList: some View {
@@ -370,14 +579,23 @@ struct CommandPaletteView: View {
 
             Spacer()
 
-            Button("Copy") {
-                viewModel.copySelectedPrompt()
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(FlintTheme.primaryText)
+            if viewModel.isShowingNewTemplatePage {
+                Button("Back") {
+                    viewModel.showCommandList()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(FlintTheme.primaryText)
+            } else {
+                Button("Copy") {
+                    viewModel.copySelectedPrompt()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(FlintTheme.primaryText)
 
-            KeyBadge("↩")
+                KeyBadge("↩")
+            }
         }
         .padding(.horizontal, 20)
         .frame(height: 44)
@@ -427,6 +645,7 @@ private enum FlintTheme {
     static let windowBackground = Color(red: 0.948, green: 0.948, blue: 0.965)
     static let selectedRow = Color(red: 0.830, green: 0.830, blue: 0.850)
     static let keyFill = Color(red: 0.840, green: 0.840, blue: 0.865)
+    static let fieldFill = Color(red: 0.970, green: 0.970, blue: 0.982)
     static let badgeFill = Color(red: 0.930, green: 0.895, blue: 0.905)
     static let badgeStroke = Color(red: 0.620, green: 0.520, blue: 0.540).opacity(0.42)
     static let hairline = Color(red: 0.800, green: 0.800, blue: 0.825)
