@@ -6,7 +6,18 @@ struct TemplateRepository {
 
     static func defaultRepository() -> TemplateRepository {
         let workingDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        return TemplateRepository(templatesURL: workingDirectory.appending(path: "templates"))
+        let developmentTemplatesURL = workingDirectory.appending(path: "templates")
+        if FileManager.default.fileExists(atPath: developmentTemplatesURL.path) {
+            return TemplateRepository(templatesURL: developmentTemplatesURL)
+        }
+
+        let applicationSupportURL = applicationSupportTemplatesURL()
+        do {
+            try seedBundledTemplatesIfNeeded(into: applicationSupportURL)
+        } catch {
+            NSLog("Flint could not prepare application support templates: \(error)")
+        }
+        return TemplateRepository(templatesURL: applicationSupportURL)
     }
 
     func loadTemplates() throws -> [FlintTemplate] {
@@ -88,6 +99,45 @@ struct TemplateRepository {
             .split(separator: "-", omittingEmptySubsequences: true)
             .joined(separator: "-")
         return collapsed.isEmpty ? "template" : collapsed
+    }
+
+    private static func applicationSupportTemplatesURL() -> URL {
+        let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appending(path: "Library/Application Support")
+        return baseURL.appending(path: "Flint/templates", directoryHint: .isDirectory)
+    }
+
+    private static func seedBundledTemplatesIfNeeded(into templatesURL: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: templatesURL, withIntermediateDirectories: true)
+
+        let existingTemplates = try fileManager.contentsOfDirectory(
+            at: templatesURL,
+            includingPropertiesForKeys: nil
+        )
+        .filter { ["yaml", "yml"].contains($0.pathExtension.lowercased()) }
+        guard existingTemplates.isEmpty, let bundledTemplatesURL = bundledTemplatesURL() else { return }
+
+        let bundledTemplates = try fileManager.contentsOfDirectory(
+            at: bundledTemplatesURL,
+            includingPropertiesForKeys: nil
+        )
+        .filter { ["yaml", "yml"].contains($0.pathExtension.lowercased()) }
+
+        for sourceURL in bundledTemplates {
+            let destinationURL = templatesURL.appending(path: sourceURL.lastPathComponent)
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        }
+    }
+
+    private static func bundledTemplatesURL() -> URL? {
+        let candidates = [
+            Bundle.main.resourceURL?.appending(path: "templates", directoryHint: .isDirectory),
+            Bundle.main.bundleURL.appending(path: "templates", directoryHint: .isDirectory),
+            Bundle.main.executableURL?.deletingLastPathComponent().appending(path: "templates", directoryHint: .isDirectory)
+        ].compactMap { $0 }
+
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
     }
 }
 

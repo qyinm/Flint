@@ -8,3 +8,4 @@
 !.codex/prompts/
 !.codex/prompts/**
 .build/
+dist/
