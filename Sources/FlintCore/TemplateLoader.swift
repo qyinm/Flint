@@ -144,13 +144,38 @@ public enum TemplateLoader {
         return String(line[index...])
     }
 
-    private static func unquote(_ value: String) -> String {
+    static func unquote(_ value: String) -> String {
         var value = value.trimmingCharacters(in: .whitespaces)
         if value.hasPrefix("\"") && value.hasSuffix("\""), value.count >= 2 {
             value.removeFirst()
             value.removeLast()
+            value = unescapeDoubleQuotedScalar(value)
         }
         return value
+    }
+
+    private static func unescapeDoubleQuotedScalar(_ value: String) -> String {
+        var result = ""
+        var isEscaping = false
+        for character in value {
+            if isEscaping {
+                switch character {
+                case "\"", "\\":
+                    result.append(character)
+                default:
+                    result.append(character)
+                }
+                isEscaping = false
+            } else if character == "\\" {
+                isEscaping = true
+            } else {
+                result.append(character)
+            }
+        }
+        if isEscaping {
+            result.append("\\")
+        }
+        return result
     }
 
     private static func parseInlineStringArray(_ value: String) -> [String] {
