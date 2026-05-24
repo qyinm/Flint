@@ -4,12 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-if [[ -f "$ROOT_DIR/.env.release.local" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$ROOT_DIR/.env.release.local"
-  set +a
-fi
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/load_release_env.sh"
+load_release_env "$ROOT_DIR"
 
 VERSION="${FLINT_VERSION:-0.1.0}"
 BUILD_DIR="$ROOT_DIR/.build/release"
@@ -18,6 +15,7 @@ APP_DIR="$DIST_DIR/Flint.app"
 DMG_STAGING_DIR="$DIST_DIR/dmg-root"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
+FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 ZIP_PATH="$DIST_DIR/Flint-${VERSION}-mac-arm64.zip"
 DMG_PATH="$DIST_DIR/Flint-${VERSION}-mac-arm64.dmg"
@@ -25,6 +23,9 @@ APP_ICON_SOURCE="$ROOT_DIR/app-logo.png"
 ICONSET_DIR="$DIST_DIR/AppIcon.iconset"
 NOTARIZE="${FLINT_NOTARIZE:-0}"
 SIGN_IDENTITY="${FLINT_SIGN_IDENTITY:-}"
+SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-app.flint.Flint}"
+SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-aJeg9bByRLbidg8vT0uAu6uIONxwlrPSWphL/AkqCQE=}"
+SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://github.com/qyinm/Flint/releases/latest/download/appcast.xml}"
 
 require_notarization_config() {
   if [[ -z "$SIGN_IDENTITY" ]]; then
@@ -64,9 +65,11 @@ export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-$ROOT_DIR/.
 swift build -c release
 
 rm -rf "$APP_DIR" "$DMG_STAGING_DIR" "$ICONSET_DIR" "$ZIP_PATH" "$DMG_PATH"
-mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+mkdir -p "$MACOS_DIR" "$FRAMEWORKS_DIR" "$RESOURCES_DIR"
 
 cp "$BUILD_DIR/FlintApp" "$MACOS_DIR/Flint"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/Flint" 2>/dev/null || true
+cp -R "$BUILD_DIR/Sparkle.framework" "$FRAMEWORKS_DIR/Sparkle.framework"
 cp -R "$BUILD_DIR/Flint_FlintApp.bundle" "$RESOURCES_DIR/Flint_FlintApp.bundle"
 mkdir -p "$ICONSET_DIR"
 sips -z 16 16 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
@@ -114,13 +117,21 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUFeedURL</key>
+  <string>${SPARKLE_FEED_URL}</string>
+  <key>SUPublicEDKey</key>
+  <string>${SPARKLE_PUBLIC_ED_KEY}</string>
 </dict>
 </plist>
 PLIST
 
 if [[ "$NOTARIZE" == "1" ]]; then
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$FRAMEWORKS_DIR/Sparkle.framework"
   codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_DIR"
 else
+  codesign --force --sign - "$FRAMEWORKS_DIR/Sparkle.framework"
   codesign --force --sign - "$APP_DIR"
 fi
 

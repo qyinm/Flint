@@ -1,5 +1,6 @@
 import AppKit
 import FlintCore
+import Sparkle
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -7,6 +8,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var paletteController: CommandPaletteWindowController?
     private var hotKeyController: HotKeyController?
     private var typedTriggerExpander: TypedTriggerExpander?
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -34,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Quick Palette", action: #selector(openPalette), keyEquivalent: "f"))
+        let checkForUpdatesItem = NSMenuItem(title: "Check for Updates...", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+        checkForUpdatesItem.target = updaterController
+        menu.addItem(checkForUpdatesItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Flint", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu

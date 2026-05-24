@@ -4,12 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-if [[ -f "$ROOT_DIR/.env.release.local" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$ROOT_DIR/.env.release.local"
-  set +a
-fi
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/load_release_env.sh"
+load_release_env "$ROOT_DIR"
 
 VERSION="${FLINT_VERSION:-0.1.0}"
 TAG="v${VERSION#v}"
@@ -17,6 +14,7 @@ DIST_DIR="$ROOT_DIR/dist"
 NOTES_PATH="$DIST_DIR/release-notes-${TAG}.md"
 DMG_PATH="$DIST_DIR/Flint-${VERSION#v}-mac-arm64.dmg"
 ZIP_PATH="$DIST_DIR/Flint-${VERSION#v}-mac-arm64.zip"
+APPCAST_PATH="$DIST_DIR/appcast/appcast.xml"
 DRY_RUN="${FLINT_RELEASE_DRY_RUN:-0}"
 AUTHOR_HANDLE="${FLINT_RELEASE_AUTHOR:-}"
 
@@ -106,11 +104,13 @@ if [[ -z "$current_branch" ]]; then
 fi
 
 scripts/package_macos_app.sh
+FLINT_RELEASE_NOTES_PATH="$NOTES_PATH" scripts/generate_appcast.sh
 
-if [[ ! -f "$DMG_PATH" || ! -f "$ZIP_PATH" ]]; then
+if [[ ! -f "$DMG_PATH" || ! -f "$ZIP_PATH" || ! -f "$APPCAST_PATH" ]]; then
   echo "Expected release assets were not created:" >&2
   echo "  $DMG_PATH" >&2
   echo "  $ZIP_PATH" >&2
+  echo "  $APPCAST_PATH" >&2
   exit 1
 fi
 
@@ -122,10 +122,10 @@ git push origin "$current_branch"
 git push origin "$TAG"
 
 if gh release view "$TAG" >/dev/null 2>&1; then
-  gh release upload "$TAG" "$DMG_PATH" "$ZIP_PATH" --clobber
+  gh release upload "$TAG" "$DMG_PATH" "$ZIP_PATH" "$APPCAST_PATH" --clobber
   gh release edit "$TAG" --title "$TAG" --notes-file "$NOTES_PATH"
 else
-  gh release create "$TAG" "$DMG_PATH" "$ZIP_PATH" \
+  gh release create "$TAG" "$DMG_PATH" "$ZIP_PATH" "$APPCAST_PATH" \
     --target "$(git rev-parse HEAD)" \
     --title "$TAG" \
     --notes-file "$NOTES_PATH" \

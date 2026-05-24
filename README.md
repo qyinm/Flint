@@ -89,10 +89,22 @@ Publish a GitHub Release with the DMG and ZIP attached:
 FLINT_VERSION=0.1.0 FLINT_NOTARIZE=1 scripts/release_github.sh
 ```
 
+GitHub releases also upload `appcast.xml` for Sparkle automatic updates. Flint checks:
+
+```text
+https://github.com/qyinm/Flint/releases/latest/download/appcast.xml
+```
+
 Preview the generated release body without tagging, pushing, or uploading:
 
 ```bash
 FLINT_VERSION=0.1.0 FLINT_RELEASE_DRY_RUN=1 scripts/release_github.sh
+```
+
+Generate only the Sparkle appcast from the current local ZIP:
+
+```bash
+FLINT_VERSION=0.1.0 scripts/generate_appcast.sh
 ```
 
 ## Why Flint
