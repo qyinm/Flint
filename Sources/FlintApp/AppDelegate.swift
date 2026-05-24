@@ -29,11 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 button.title = "Flint"
             }
-            button.toolTip = "Open Flint command palette"
+            button.toolTip = "Open Flint quick palette"
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Open Command Palette", action: #selector(openPalette), keyEquivalent: "f"))
+        menu.addItem(NSMenuItem(title: "Open Quick Palette", action: #selector(openPalette), keyEquivalent: "f"))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Flint", action: #selector(quit), keyEquivalent: "q"))
         statusItem.menu = menu

@@ -3,40 +3,41 @@ import FlintCore
 import SwiftUI
 
 final class CommandPaletteWindowController: NSWindowController {
-    private static let minimumWindowSize = NSSize(width: 720, height: 520)
+    private static let windowSize = NSSize(width: 760, height: 480)
 
-    private let repository: TemplateRepository
+    private let viewModel: CommandPaletteViewModel
+    private var localKeyMonitor: Any?
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
 
     init(repository: TemplateRepository) {
-        self.repository = repository
         let viewModel = CommandPaletteViewModel(repository: repository)
+        self.viewModel = viewModel
         let rootView = CommandPaletteView(viewModel: viewModel)
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: Self.minimumWindowSize),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(origin: .zero, size: Self.windowSize),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.minSize = Self.minimumWindowSize
-        window.title = ""
         window.level = .floating
         window.appearance = NSAppearance(named: .aqua)
-        window.backgroundColor = .white
-        window.isOpaque = true
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
+        window.backgroundColor = .clear
+        window.isOpaque = false
         window.isMovableByWindowBackground = true
         window.hasShadow = true
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: rootView)
         super.init(window: window)
+        installDismissMonitors()
+        installKeyboardMonitor()
     }
 
     required init?(coder: NSCoder) { nil }
 
     func togglePalette() {
         if window?.isVisible == true {
-            window?.orderOut(nil)
+            dismissPalette()
         } else {
             showPalette()
         }
@@ -50,6 +51,49 @@ final class CommandPaletteWindowController: NSWindowController {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    private func dismissPalette() {
+        window?.orderOut(nil)
+    }
+
+    private func installDismissMonitors() {
+        let mouseEvents: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseEvents) { [weak self] event in
+            self?.dismissIfClickIsOutsidePalette(event)
+            return event
+        }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseEvents) { [weak self] event in
+            DispatchQueue.main.async {
+                self?.dismissIfClickIsOutsidePalette(event)
+            }
+        }
+    }
+
+    private func installKeyboardMonitor() {
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.window?.isVisible == true else { return event }
+            switch event.keyCode {
+            case 125:
+                self.viewModel.moveSelectionDown()
+                return nil
+            case 126:
+                self.viewModel.moveSelectionUp()
+                return nil
+            case 36, 76:
+                self.viewModel.copySelectedPrompt()
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    private func dismissIfClickIsOutsidePalette(_ event: NSEvent) {
+        guard let window, window.isVisible else { return }
+        if event.window === window { return }
+        if window.frame.contains(NSEvent.mouseLocation) { return }
+        dismissPalette()
+    }
 }
 
 @MainActor
@@ -58,10 +102,7 @@ final class CommandPaletteViewModel: ObservableObject {
     @Published private(set) var records: [TemplateRecord] = []
     @Published var selectedRecord: TemplateRecord?
     @Published var renderedPrompt = ""
-    @Published var statusMessage = "Select a template to preview its expanded prompt."
-    @Published private(set) var isEditing = false
-    @Published var editDraft: EditableTemplateDraft?
-    @Published var validationMessage: String?
+    @Published var statusMessage = "Copy"
 
     private let repository: TemplateRepository
     private let renderer = TemplateRenderer()
@@ -73,622 +114,323 @@ final class CommandPaletteViewModel: ObservableObject {
     }
 
     var filteredRecords: [TemplateRecord] {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return records }
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else { return records }
         return records.filter {
-            $0.template.name.localizedCaseInsensitiveContains(query) ||
-            $0.template.id.localizedCaseInsensitiveContains(query) ||
-            ($0.template.description?.localizedCaseInsensitiveContains(query) ?? false)
+            $0.template.name.localizedCaseInsensitiveContains(normalizedQuery) ||
+            $0.template.id.localizedCaseInsensitiveContains(normalizedQuery) ||
+            ($0.template.description?.localizedCaseInsensitiveContains(normalizedQuery) ?? false) ||
+            $0.template.triggers.typed.contains(where: { $0.localizedCaseInsensitiveContains(normalizedQuery) })
         }
-    }
-
-    var selectedTemplate: FlintTemplate? {
-        selectedRecord?.template
     }
 
     var selectedRecordID: String? {
         selectedRecord?.id
     }
 
-    var typedTriggersText: String {
-        editDraft?.typedTriggers.joined(separator: "\n") ?? ""
+    var selectedRecordDisplayName: String {
+        selectedRecord?.template.name ?? "No template"
     }
 
-    var spokenTriggersText: String {
-        editDraft?.spokenTriggers.joined(separator: "\n") ?? ""
-    }
-
-    var draftTargetKeys: [String] {
-        guard let editDraft else { return [] }
-        let ordered = editDraft.targetOrder.filter { editDraft.targets[$0] != nil }
-        let remaining = editDraft.targets.keys.filter { !ordered.contains($0) }.sorted()
-        return ordered + remaining
+    private var selectableRecords: [TemplateRecord] {
+        filteredRecords.isEmpty ? records : filteredRecords
     }
 
     func reloadFromRepository() {
         do {
-            reload(records: try repository.loadTemplateRecords())
+            let loadedRecords = try repository.loadTemplateRecords()
+            records = loadedRecords
+            if let selectedRecord, loadedRecords.contains(where: { $0.id == selectedRecord.id }) {
+                select(selectedRecord)
+            } else {
+                select(loadedRecords.first)
+            }
         } catch {
             records = []
             selectedRecord = nil
             renderedPrompt = ""
-            statusMessage = "Could not load local templates: \(error)"
+            statusMessage = "Could not load templates"
         }
     }
 
-    private func reload(records: [TemplateRecord], preserving recordID: String? = nil) {
-        let selectedID = recordID ?? selectedRecord?.id
-        self.records = records
-        if let selectedID, let matching = records.first(where: { $0.id == selectedID }) {
-            selectedRecord = matching
-        } else if selectedRecord == nil || !records.contains(where: { $0.id == selectedRecord?.id }) {
-            selectedRecord = records.first
-        }
-        renderSelectedTemplate()
-    }
-
-    func select(_ record: TemplateRecord) {
+    func select(_ record: TemplateRecord?) {
         selectedRecord = record
-        cancelEditing()
-        renderSelectedTemplate()
-    }
-
-    func beginEditing() {
-        guard let selectedRecord else {
-            statusMessage = "Select a template to edit."
-            return
-        }
-        guard selectedRecord.unsupportedSaveReason == nil else {
-            let reason = selectedRecord.unsupportedSaveReason ?? "this template cannot be safely saved"
-            statusMessage = "Editing disabled: \(reason)."
-            validationMessage = statusMessage
-            return
-        }
-        editDraft = EditableTemplateDraft(document: selectedRecord.document)
-        isEditing = true
-        validationMessage = nil
-        statusMessage = "Editing \(selectedRecord.template.name)."
-    }
-
-    func cancelEditing() {
-        isEditing = false
-        editDraft = nil
-        validationMessage = nil
-    }
-
-    func saveEditing() {
-        guard let selectedRecord, let editDraft else {
-            statusMessage = "Nothing to save."
+        guard let template = record?.template else {
+            renderedPrompt = ""
+            statusMessage = "No local templates"
             return
         }
         do {
-            try repository.save(editDraft, for: selectedRecord)
-            let selectedID = selectedRecord.id
-            let reloaded = try repository.loadTemplateRecords()
-            isEditing = false
-            self.editDraft = nil
-            validationMessage = nil
-            reload(records: reloaded, preserving: selectedID)
-            statusMessage = "Saved \(self.selectedRecord?.template.name ?? "template")."
-        } catch {
-            validationMessage = "\(error)"
-            statusMessage = "Could not save template: \(error)"
-        }
-    }
-
-    func updateDraftName(_ name: String) {
-        updateDraft { $0.name = name }
-    }
-
-    func updateDraftDescription(_ description: String) {
-        updateDraft { $0.description = description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : description }
-    }
-
-    func updateDraftTypedTriggersText(_ text: String) {
-        updateDraft { $0.typedTriggers = Self.triggerValues(from: text) }
-    }
-
-    func updateDraftSpokenTriggersText(_ text: String) {
-        updateDraft { $0.spokenTriggers = Self.triggerValues(from: text) }
-    }
-
-    func updateDraftTarget(_ key: String, body: String) {
-        updateDraft { $0.targets[key] = body }
-    }
-
-    func updatePreviewFromDraft() {
-        guard let editDraft else {
-            renderSelectedTemplate()
-            return
-        }
-        do {
-            let template = try FlintTemplateYAMLCodec.template(from: editDraft)
             renderedPrompt = try renderer.render(template, target: "generic")
-            validationMessage = nil
-            statusMessage = "Previewing edits for \(template.name)."
+            statusMessage = "Copy \(template.name)"
         } catch {
             renderedPrompt = ""
-            validationMessage = "\(error)"
-            statusMessage = "Could not preview edits: \(error)"
+            statusMessage = "Could not render template"
         }
     }
 
-    private func updateDraft(_ apply: (inout EditableTemplateDraft) -> Void) {
-        guard var draft = editDraft else { return }
-        apply(&draft)
-        editDraft = draft
-        updatePreviewFromDraft()
-    }
-
-    private static func triggerValues(from text: String) -> [String] {
-        text.split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
-
-    func copyRenderedPrompt() {
+    func copySelectedPrompt() {
         guard !renderedPrompt.isEmpty else {
-            statusMessage = "Nothing to copy."
+            statusMessage = "Nothing to copy"
             return
         }
-        let result = insertionService.copyToClipboard(renderedPrompt)
-        statusMessage = message(for: result)
+        insertionService.copyToClipboard(renderedPrompt)
+        statusMessage = "Copied \(selectedRecordDisplayName)"
     }
 
-    func insertRenderedPrompt() {
-        guard !renderedPrompt.isEmpty else {
-            statusMessage = "Nothing to insert."
+    func moveSelectionDown() {
+        moveSelection(by: 1)
+    }
+
+    func moveSelectionUp() {
+        moveSelection(by: -1)
+    }
+
+    private func moveSelection(by offset: Int) {
+        let candidates = selectableRecords
+        guard !candidates.isEmpty else {
+            select(nil)
             return
         }
-        let result = insertionService.insertIntoFocusedElementOrCopy(renderedPrompt)
-        statusMessage = message(for: result)
-    }
 
-    private func message(for result: PromptInsertionService.InsertionResult) -> String {
-        switch result {
-        case .copiedToClipboard:
-            return "Copied expanded prompt. Paste now in the active app."
-        case .directInsertSucceeded:
-            return "Inserted expanded prompt into the focused app."
-        case .accessibilityPermissionDenied:
-            return "Accessibility permission is needed for direct insertion. The prompt was copied instead; paste now."
-        case .directInsertFailed(let reason):
-            return reason
-        }
-    }
-
-    func renderSelectedTemplate() {
-        guard let selectedTemplate else {
-            renderedPrompt = ""
-            statusMessage = "No local templates found."
-            return
-        }
-        do {
-            renderedPrompt = try renderer.render(selectedTemplate, target: "generic")
-            statusMessage = "Previewing \(selectedTemplate.name)."
-        } catch {
-            renderedPrompt = ""
-            statusMessage = "Could not render template: \(error)"
-        }
+        let currentIndex = selectedRecord.flatMap { selected in
+            candidates.firstIndex { $0.id == selected.id }
+        } ?? (offset > 0 ? -1 : candidates.count)
+        let nextIndex = min(max(currentIndex + offset, 0), candidates.count - 1)
+        select(candidates[nextIndex])
     }
 }
 
 struct CommandPaletteView: View {
     @ObservedObject var viewModel: CommandPaletteViewModel
+    @FocusState private var searchFocused: Bool
     @State private var didAppear = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Flint Command Palette")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(FlintGlassTheme.primaryText)
-                Text("Type a shortcut, pick a template, and copy it without leaving flow.")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(FlintGlassTheme.secondaryText)
-            }
-
-            LiquidGlassPanel {
-                TextField("Search templates", text: $viewModel.query)
-                    .textFieldStyle(.plain)
-                    .searchFieldChrome()
-            }
-
-            HStack(alignment: .top, spacing: 10) {
-                LiquidGlassPanel(fillsHeight: true) {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(viewModel.filteredRecords) { record in
-                                let isSelected = viewModel.selectedRecordID == record.id
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                        Text(record.template.name)
-                                            .font(.system(size: 14, weight: .semibold))
-                                            .foregroundStyle(isSelected ? FlintGlassTheme.selectedText : FlintGlassTheme.primaryText)
-                                        if record.unsupportedSaveReason != nil {
-                                            Text("Preview only")
-                                                .font(.system(size: 10, weight: .medium))
-                                                .foregroundStyle(isSelected ? FlintGlassTheme.selectedMutedText : FlintGlassTheme.secondaryText)
-                                        }
-                                    }
-                                    if let description = record.template.description {
-                                        Text(description)
-                                            .font(.system(size: 12, weight: .regular))
-                                            .tracking(0.15)
-                                            .foregroundStyle(isSelected ? FlintGlassTheme.selectedMutedText : FlintGlassTheme.secondaryText)
-                                    }
-                                }
-                                .padding(.vertical, 12)
-                                .padding(.horizontal, 16)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(selectionHighlight(for: record))
-                                .contentShape(RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous))
-                                .onTapGesture {
-                                    viewModel.select(record)
-                                }
-                            }
-                        }
-                        .padding(.trailing, 2)
-                    }
-                    .background(Color.clear)
-                    .animation(.easeInOut(duration: 0.18), value: viewModel.selectedRecordID)
-                }
-                .frame(minWidth: 240, maxWidth: .infinity)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    LiquidGlassPanel(fillsHeight: true) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text(viewModel.isEditing ? "Edit template" : "Expanded prompt preview")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(FlintGlassTheme.primaryText)
-                                Spacer()
-                                paletteActions
-                            }
-
-                            if viewModel.isEditing {
-                                editForm
-                            } else {
-                                previewPane
-                            }
-                        }
-                    }
-
-                    LiquidGlassPanel {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if let validationMessage = viewModel.validationMessage {
-                                Text(validationMessage)
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundStyle(.red)
-                                    .textSelection(.enabled)
-                            }
-                            Text(viewModel.statusMessage)
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(FlintGlassTheme.secondaryText)
-                        }
-                    }
-                }
-                .frame(minWidth: 300, maxWidth: .infinity)
-            }
+        VStack(spacing: 0) {
+            searchHeader
+            Divider()
+            commandList
+            Spacer(minLength: 0)
+            Divider()
+            actionBar
         }
-        .padding(.top, 12)
-        .padding(.horizontal, 28)
-        .padding(.bottom, 22)
-        .frame(minWidth: 680, minHeight: 460)
-        .background(FlintWindowBackground())
-        .tint(FlintGlassTheme.controlTint)
+        .frame(width: 760, height: 480)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(FlintTheme.windowBackground)
+                .overlay(alignment: .topTrailing) {
+                    LinearGradient(
+                        colors: [
+                            Color(red: 1.0, green: 0.84, blue: 0.84).opacity(0.72),
+                            Color.clear
+                        ],
+                        startPoint: .topTrailing,
+                        endPoint: .center
+                    )
+                    .frame(width: 210, height: 150)
+                    .allowsHitTesting(false)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(FlintTheme.hairline, lineWidth: 1)
+                }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .environment(\.colorScheme, .light)
         .opacity(didAppear ? 1 : 0)
         .offset(y: didAppear ? 0 : 8)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.22)) {
+            searchFocused = true
+            withAnimation(.easeOut(duration: 0.16)) {
                 didAppear = true
             }
         }
     }
 
-    @ViewBuilder
-    private var paletteActions: some View {
-        HStack(spacing: 8) {
-            Button { viewModel.copyRenderedPrompt() } label: {
-                Image(systemName: "doc.on.doc")
-                    .accessibilityLabel("Copy")
-            }
-            .buttonStyle(FlintIconButtonStyle(kind: .secondary))
-            .disabled(viewModel.renderedPrompt.isEmpty)
-            .opacity(viewModel.renderedPrompt.isEmpty ? 0.45 : 1)
-
-            if viewModel.isEditing {
-                Button { viewModel.cancelEditing() } label: {
-                    Image(systemName: "xmark")
-                        .accessibilityLabel("Cancel")
-                }
-                .buttonStyle(FlintIconButtonStyle(kind: .secondary))
-                Button { viewModel.saveEditing() } label: {
-                    Image(systemName: "checkmark")
-                        .accessibilityLabel("Save")
-                }
-                .buttonStyle(FlintIconButtonStyle(kind: .primary))
-            } else {
-                Button { viewModel.beginEditing() } label: {
-                    Image(systemName: "pencil")
-                        .accessibilityLabel("Edit")
-                }
-                .buttonStyle(FlintIconButtonStyle(kind: .secondary))
-                .disabled(viewModel.selectedRecord == nil)
-                .opacity(viewModel.selectedRecord == nil ? 0.45 : 1)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var previewPane: some View {
-        ScrollView {
-            Text(viewModel.renderedPrompt)
-                .font(.system(size: 13, weight: .regular, design: .monospaced))
-                .foregroundStyle(FlintGlassTheme.primaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-    }
-
-    @ViewBuilder
-    private var editForm: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                labeledTextField("Name", text: Binding(
-                    get: { viewModel.editDraft?.name ?? "" },
-                    set: { viewModel.updateDraftName($0) }
-                ))
-                labeledTextField("Description", text: Binding(
-                    get: { viewModel.editDraft?.description ?? "" },
-                    set: { viewModel.updateDraftDescription($0) }
-                ))
-                labeledTextEditor(
-                    "Typed triggers",
-                    help: "One trigger per line. Commas and newlines inside a trigger are rejected on save.",
-                    minHeight: 64,
-                    text: Binding(
-                        get: { viewModel.typedTriggersText },
-                        set: { viewModel.updateDraftTypedTriggersText($0) }
-                    )
-                )
-                labeledTextEditor(
-                    "Spoken triggers",
-                    help: "One spoken phrase per line.",
-                    minHeight: 64,
-                    text: Binding(
-                        get: { viewModel.spokenTriggersText },
-                        set: { viewModel.updateDraftSpokenTriggersText($0) }
-                    )
-                )
-                ForEach(viewModel.draftTargetKeys, id: \.self) { key in
-                    labeledTextEditor(
-                        "Target: \(key)",
-                        help: key == "generic" ? "Generic target is required and cannot be blank." : nil,
-                        minHeight: key == "generic" ? 150 : 120,
-                        text: Binding(
-                            get: { viewModel.editDraft?.targets[key] ?? "" },
-                            set: { viewModel.updateDraftTarget(key, body: $0) }
-                        )
-                    )
-                }
-            }
-            .padding(.trailing, 4)
-        }
-    }
-
-    private func labeledTextField(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(FlintGlassTheme.primaryText)
-            TextField(title, text: text)
+    private var searchHeader: some View {
+        HStack(spacing: 12) {
+            TextField("Search prompts and commands...", text: $viewModel.query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .padding(8)
-                .background(FlintGlassTheme.searchFill)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(FlintTheme.primaryText)
+                .focused($searchFocused)
+                .onChange(of: viewModel.query) { _, _ in
+                    viewModel.select(viewModel.filteredRecords.first ?? viewModel.records.first)
+                }
+
+            Text("Tab")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(FlintTheme.secondaryText)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .background {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(FlintTheme.badgeFill)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .strokeBorder(FlintTheme.badgeStroke, lineWidth: 1)
+                        }
+                }
         }
+        .padding(.leading, 22)
+        .padding(.trailing, 18)
+        .frame(height: 64)
     }
 
-    private func labeledTextEditor(
-        _ title: String,
-        help: String? = nil,
-        minHeight: CGFloat,
-        text: Binding<String>
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(FlintGlassTheme.primaryText)
-            if let help {
-                Text(help)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(FlintGlassTheme.secondaryText)
-            }
-            TextEditor(text: text)
-                .font(.system(size: 12, weight: .regular, design: .monospaced))
-                .foregroundStyle(FlintGlassTheme.primaryText)
-                .scrollContentBackground(.hidden)
-                .padding(6)
-                .frame(minHeight: minHeight)
-                .background(FlintGlassTheme.searchFill)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-    }
+    private var commandList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                sectionTitle("Templates")
 
-    @ViewBuilder
-    private func selectionHighlight(for record: TemplateRecord) -> some View {
-        let isSelected = viewModel.selectedRecordID == record.id
-        RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
-            .fill(isSelected ? FlintGlassTheme.selectionFill : FlintGlassTheme.rowFill)
-            .overlay {
-                RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
-                    .strokeBorder(isSelected ? FlintGlassTheme.selectionStroke : Color.clear, lineWidth: 1)
-            }
-    }
-}
-
-private enum FlintGlassTheme {
-    static let panelCornerRadius: CGFloat = 12
-    static let standardCornerRadius: CGFloat = 999
-    static let primary = Color.black
-    static let inkDeep = Color(red: 0.035, green: 0.035, blue: 0.035)
-    static let canvas = Color.white
-    static let surfaceSoft = Color(red: 0.980, green: 0.980, blue: 0.980)
-    static let surfaceDark = Color(red: 0.090, green: 0.090, blue: 0.090)
-    static let hairline = Color(red: 0.898, green: 0.898, blue: 0.898)
-    static let hairlineStrong = Color(red: 0.831, green: 0.831, blue: 0.831)
-    static let bodyText = Color(red: 0.451, green: 0.451, blue: 0.451)
-    static let muteText = Color(red: 0.639, green: 0.639, blue: 0.639)
-    static let focusRing = Color(red: 0.231, green: 0.510, blue: 0.965).opacity(0.50)
-
-    static let windowBase = canvas
-    static let panelFill = canvas
-    static let panelStroke = hairline
-    static let panelShadow = Color.clear
-    static let primaryText = primary
-    static let secondaryText = bodyText
-    static let selectedText = primary
-    static let selectedMutedText = bodyText
-    static let controlTint = primary
-    static let searchFill = surfaceSoft
-    static let searchStroke = hairline
-    static let searchFocusStroke = focusRing
-    static let rowFill = surfaceSoft
-    static let selectionFill = canvas
-    static let selectionStroke = primary.opacity(0.72)
-}
-
-private struct FlintWindowBackground: View {
-    var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(FlintGlassTheme.windowBase)
-        }
-    }
-}
-
-private struct LiquidGlassPanel<Content: View>: View {
-    var fillsHeight = false
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        content
-            .padding(16)
-            .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
-            .background {
-                RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
-                    .fill(FlintGlassTheme.panelFill)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: FlintGlassTheme.panelCornerRadius, style: .continuous)
-                            .strokeBorder(FlintGlassTheme.panelStroke, lineWidth: 1)
+                if viewModel.filteredRecords.isEmpty {
+                    emptyRow
+                } else {
+                    ForEach(viewModel.filteredRecords) { record in
+                        commandRow(record)
                     }
-                    .shadow(color: FlintGlassTheme.panelShadow, radius: 10, x: 0, y: 4)
+                }
+
             }
-    }
-}
-
-private struct SearchFieldChrome: ViewModifier {
-    @FocusState private var isFocused: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .focused($isFocused)
-            .font(.system(size: 15))
-            .foregroundStyle(FlintGlassTheme.primaryText)
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(FlintGlassTheme.searchFill)
-            }
-            .overlay {
-                Capsule(style: .continuous)
-                    .strokeBorder(
-                        isFocused ? FlintGlassTheme.searchFocusStroke : FlintGlassTheme.searchStroke,
-                        lineWidth: isFocused ? 2 : 1
-                    )
-            }
-            .animation(.easeInOut(duration: 0.12), value: isFocused)
-    }
-}
-
-private extension View {
-    func searchFieldChrome() -> some View {
-        modifier(SearchFieldChrome())
-    }
-}
-
-private struct FlintPillButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(FlintGlassTheme.canvas)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 20)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(configuration.isPressed ? FlintGlassTheme.inkDeep : FlintGlassTheme.controlTint)
-            }
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
-
-private struct FlintIconButtonStyle: ButtonStyle {
-    enum Kind {
-        case primary
-        case secondary
-    }
-
-    let kind: Kind
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(kind == .primary ? FlintGlassTheme.canvas : FlintGlassTheme.primaryText)
-            .frame(width: 32, height: 32)
-            .background {
-                Circle()
-                    .fill(backgroundColor(isPressed: configuration.isPressed))
-            }
-            .overlay {
-                Circle()
-                    .strokeBorder(kind == .primary ? Color.clear : FlintGlassTheme.hairline, lineWidth: 1)
-            }
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-
-    private func backgroundColor(isPressed: Bool) -> Color {
-        switch kind {
-        case .primary:
-            return isPressed ? FlintGlassTheme.inkDeep : FlintGlassTheme.controlTint
-        case .secondary:
-            return isPressed ? FlintGlassTheme.hairlineStrong : FlintGlassTheme.surfaceSoft
+            .padding(.top, 12)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 12)
         }
     }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(FlintTheme.secondaryText)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 6)
+    }
+
+    private var emptyRow: some View {
+        HStack(spacing: 12) {
+            commandIcon(systemName: "magnifyingglass", accent: .gray)
+            Text("No matching prompts")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(FlintTheme.primaryText)
+            Spacer()
+        }
+        .padding(.horizontal, 15)
+        .frame(height: 44)
+    }
+
+    private func commandRow(_ record: TemplateRecord) -> some View {
+        let isSelected = viewModel.selectedRecordID == record.id
+        return Button {
+            viewModel.select(record)
+        } label: {
+            HStack(spacing: 12) {
+                commandIcon(systemName: iconName(for: record), accent: accentColor(for: record))
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(record.template.name)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(FlintTheme.primaryText)
+                    if let trigger = record.template.triggers.typed.first {
+                        Text(trigger)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(FlintTheme.secondaryText)
+                    }
+                }
+                Spacer()
+                Text("Prompt")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(FlintTheme.secondaryText)
+            }
+            .padding(.horizontal, 15)
+            .frame(height: 44)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isSelected ? FlintTheme.selectedRow : Color.clear)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func commandIcon(systemName: String, accent: Color) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(accent.opacity(0.12))
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(accent)
+        }
+        .frame(width: 22, height: 22)
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "gearshape")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(FlintTheme.mutedText)
+
+            Spacer()
+
+            Button("Copy") {
+                viewModel.copySelectedPrompt()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(FlintTheme.primaryText)
+
+            KeyBadge("↩")
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 44)
+    }
+
+    private func iconName(for record: TemplateRecord) -> String {
+        let id = record.template.id.lowercased()
+        if id.contains("debug") { return "stethoscope" }
+        if id.contains("review") { return "checklist" }
+        if id.contains("codex") { return "terminal" }
+        if id.contains("plan") { return "list.bullet.rectangle" }
+        if id.contains("critic") { return "exclamationmark.bubble" }
+        return "doc.text"
+    }
+
+    private func accentColor(for record: TemplateRecord) -> Color {
+        let id = record.template.id.lowercased()
+        if id.contains("debug") { return Color(red: 0.12, green: 0.47, blue: 0.96) }
+        if id.contains("review") { return Color(red: 0.11, green: 0.58, blue: 0.35) }
+        if id.contains("codex") { return Color(red: 0.85, green: 0.20, blue: 0.25) }
+        if id.contains("plan") { return Color(red: 0.56, green: 0.36, blue: 0.93) }
+        if id.contains("critic") { return Color(red: 0.95, green: 0.45, blue: 0.12) }
+        return .black
+    }
 }
 
-private struct FlintSecondaryPillButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(FlintGlassTheme.primaryText)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 16)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(configuration.isPressed ? FlintGlassTheme.hairlineStrong : FlintGlassTheme.surfaceSoft)
-            }
-            .overlay {
-                Capsule(style: .continuous)
-                    .strokeBorder(FlintGlassTheme.hairline, lineWidth: 1)
-            }
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+private struct KeyBadge: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
     }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(FlintTheme.secondaryText)
+            .frame(minWidth: 22, minHeight: 21)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(FlintTheme.keyFill)
+            }
+    }
+}
+
+private enum FlintTheme {
+    static let windowBackground = Color(red: 0.948, green: 0.948, blue: 0.965)
+    static let selectedRow = Color(red: 0.830, green: 0.830, blue: 0.850)
+    static let keyFill = Color(red: 0.840, green: 0.840, blue: 0.865)
+    static let badgeFill = Color(red: 0.930, green: 0.895, blue: 0.905)
+    static let badgeStroke = Color(red: 0.620, green: 0.520, blue: 0.540).opacity(0.42)
+    static let hairline = Color(red: 0.800, green: 0.800, blue: 0.825)
+    static let primaryText = Color(red: 0.070, green: 0.070, blue: 0.080)
+    static let secondaryText = Color(red: 0.390, green: 0.390, blue: 0.410)
+    static let mutedText = Color(red: 0.560, green: 0.560, blue: 0.590)
 }
