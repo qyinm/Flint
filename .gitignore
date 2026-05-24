@@ -7,5 +7,6 @@
 .codex/skills/.system/**
 !.codex/prompts/
 !.codex/prompts/**
+.env.release.local
 .build/
 dist/

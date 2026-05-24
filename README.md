@@ -67,6 +67,34 @@ swift test
 
 Current automated coverage focuses on template loading, trigger parsing, variable defaults, target-specific rendering, and placeholder replacement.
 
+## macOS release
+
+Create a local dogfood DMG:
+
+```bash
+FLINT_VERSION=0.1.0 scripts/package_macos_app.sh
+```
+
+For a public notarized DMG, copy `.env.release.local.example` to `.env.release.local`, fill in the Developer ID signing identity and Apple notarization credentials, then run:
+
+```bash
+FLINT_NOTARIZE=1 scripts/package_macos_app.sh
+```
+
+The script signs `Flint.app`, notarizes and staples the app, creates the DMG, notarizes and staples the DMG, then validates the stapled artifacts.
+
+Publish a GitHub Release with the DMG and ZIP attached:
+
+```bash
+FLINT_VERSION=0.1.0 FLINT_NOTARIZE=1 scripts/release_github.sh
+```
+
+Preview the generated release body without tagging, pushing, or uploading:
+
+```bash
+FLINT_VERSION=0.1.0 FLINT_RELEASE_DRY_RUN=1 scripts/release_github.sh
+```
+
 ## Why Flint
 
 AI-heavy developers repeatedly copy, paste, and edit the same prompt patterns:

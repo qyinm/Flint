@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if [[ -f "$ROOT_DIR/.env.release.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env.release.local"
+  set +a
+fi
+
 VERSION="${FLINT_VERSION:-0.1.0}"
 BUILD_DIR="$ROOT_DIR/.build/release"
 DIST_DIR="$ROOT_DIR/dist"
@@ -14,17 +21,65 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 ZIP_PATH="$DIST_DIR/Flint-${VERSION}-mac-arm64.zip"
 DMG_PATH="$DIST_DIR/Flint-${VERSION}-mac-arm64.dmg"
+APP_ICON_SOURCE="$ROOT_DIR/app-logo.png"
+ICONSET_DIR="$DIST_DIR/AppIcon.iconset"
+NOTARIZE="${FLINT_NOTARIZE:-0}"
+SIGN_IDENTITY="${FLINT_SIGN_IDENTITY:-}"
+
+require_notarization_config() {
+  if [[ -z "$SIGN_IDENTITY" ]]; then
+    echo "FLINT_SIGN_IDENTITY is required when FLINT_NOTARIZE=1." >&2
+    echo "Expected a Developer ID Application identity from: security find-identity -v -p codesigning" >&2
+    exit 1
+  fi
+
+  if ! security find-identity -v -p codesigning | grep -Fq "$SIGN_IDENTITY"; then
+    echo "Signing identity not found: $SIGN_IDENTITY" >&2
+    security find-identity -v -p codesigning >&2
+    exit 1
+  fi
+
+  if [[ -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
+    echo "APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID are required when FLINT_NOTARIZE=1." >&2
+    exit 1
+  fi
+}
+
+notarize_artifact() {
+  local artifact_path="$1"
+  xcrun notarytool submit "$artifact_path" \
+    --apple-id "$APPLE_ID" \
+    --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+    --team-id "$APPLE_TEAM_ID" \
+    --wait
+}
+
+if [[ "$NOTARIZE" == "1" ]]; then
+  require_notarization_config
+fi
 
 export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-$ROOT_DIR/.build/ModuleCache.noindex}"
 export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-$ROOT_DIR/.build/ModuleCache.noindex}"
 
 swift build -c release
 
-rm -rf "$APP_DIR" "$DMG_STAGING_DIR" "$ZIP_PATH" "$DMG_PATH"
+rm -rf "$APP_DIR" "$DMG_STAGING_DIR" "$ICONSET_DIR" "$ZIP_PATH" "$DMG_PATH"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$BUILD_DIR/FlintApp" "$MACOS_DIR/Flint"
 cp -R "$BUILD_DIR/Flint_FlintApp.bundle" "$RESOURCES_DIR/Flint_FlintApp.bundle"
+mkdir -p "$ICONSET_DIR"
+sips -z 16 16 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
+sips -z 32 32 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_16x16@2x.png" >/dev/null
+sips -z 32 32 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_32x32.png" >/dev/null
+sips -z 64 64 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_32x32@2x.png" >/dev/null
+sips -z 128 128 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_128x128.png" >/dev/null
+sips -z 256 256 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_128x128@2x.png" >/dev/null
+sips -z 256 256 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_256x256.png" >/dev/null
+sips -z 512 512 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_256x256@2x.png" >/dev/null
+sips -z 512 512 "$APP_ICON_SOURCE" --out "$ICONSET_DIR/icon_512x512.png" >/dev/null
+cp "$APP_ICON_SOURCE" "$ICONSET_DIR/icon_512x512@2x.png"
+iconutil -c icns "$ICONSET_DIR" -o "$RESOURCES_DIR/AppIcon.icns"
 mkdir -p "$RESOURCES_DIR/templates"
 while IFS= read -r template_path; do
   cp "$ROOT_DIR/$template_path" "$RESOURCES_DIR/templates/"
@@ -41,6 +96,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <string>Flint</string>
   <key>CFBundleIdentifier</key>
   <string>app.flint.Flint</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
@@ -61,9 +118,18 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign - "$APP_DIR"
+if [[ "$NOTARIZE" == "1" ]]; then
+  codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_DIR"
+else
+  codesign --force --sign - "$APP_DIR"
+fi
 
 ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
+
+if [[ "$NOTARIZE" == "1" ]]; then
+  notarize_artifact "$ZIP_PATH"
+  xcrun stapler staple "$APP_DIR"
+fi
 
 mkdir -p "$DMG_STAGING_DIR"
 cp -R "$APP_DIR" "$DMG_STAGING_DIR/Flint.app"
@@ -74,6 +140,15 @@ hdiutil create \
   -ov \
   -format UDZO \
   "$DMG_PATH"
+
+if [[ "$NOTARIZE" == "1" ]]; then
+  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
+  notarize_artifact "$DMG_PATH"
+  xcrun stapler staple "$DMG_PATH"
+  xcrun stapler validate "$APP_DIR"
+  xcrun stapler validate "$DMG_PATH"
+  spctl --assess --type execute --verbose=4 "$APP_DIR"
+fi
 
 echo "$APP_DIR"
 echo "$ZIP_PATH"
