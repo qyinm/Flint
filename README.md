@@ -101,7 +101,7 @@ The user should stop thinking about where prompt templates live. They should inv
 
 - type `:review` and get a code review prompt
 - type `:seed` and get a structured Seed-style spec template
-- say “review template” and insert the same template
+- say “review template” and copy the same template
 - say “make this a Codex task” and transform the current idea
 - reuse one prompt library across typed and spoken input
 
@@ -122,17 +122,17 @@ The first useful version should prove one thing:
 
 > Invoking AI prompt templates from anywhere feels faster and better than copy-paste or writing espanso YAML snippets.
 
-### v0 — Command Palette + Template Insertion
+### v0 — Quick Palette + Template Copy
 
 Goal: prove reusable AI prompt templates are useful from anywhere.
 
 Scope:
 
 1. macOS menu bar app
-2. Global hotkey opens command palette
+2. Global hotkey opens a compact Quick Palette
 3. Local template library with 3–5 real AI prompts
-4. User selects a template
-5. App inserts expanded text into the active app via Accessibility API or clipboard fallback
+4. User types or speaks an intent and selects a matched template
+5. App copies the expanded prompt so the user can paste it into the active AI tool
 
 The dogfood path should also support espanso-style typed triggers such as
 `:debug`, `:review`, `:plan`, `:codex`, and `:critic`. When Flint is running
@@ -141,11 +141,11 @@ the trigger with the rendered local template.
 
 Out of scope:
 
-- voice trigger invocation
+- full voice dictation
 - AI transformations
 - marketplace
 - sync
-- typed trigger customization UI
+- heavy template management inside the Quick Palette
 
 ### v0.1 — Typed Trigger Expansion
 
@@ -239,8 +239,8 @@ Likely stack:
 
 - Swift / SwiftUI for the native macOS shell
 - menu bar app first
-- Accessibility API for direct text insertion
-- clipboard fallback when direct insertion fails
+- clipboard-first copy flow for the Quick Palette
+- Accessibility API for optional typed-trigger replacement
 - Event taps for typed trigger monitoring in v0.1
 - Apple Speech framework for short voice command recognition in v0.2
 - optional local Whisper later
@@ -271,19 +271,19 @@ macOS permission friction is part of the product.
 
 Required permissions by stage:
 
-- v0: Accessibility, for inserting text into the active app
+- v0: no permission required for the Quick Palette copy flow
 - v0.1: Input Monitoring, for global typed trigger detection
 - v0.2: Microphone and Speech Recognition, for voice commands
 
 Failure behavior:
 
-- If Accessibility is denied, copy the expanded template to clipboard and show “Paste now” guidance.
+- If Accessibility is denied, typed-trigger replacement is disabled but the Quick Palette copy flow still works.
 - If Input Monitoring is denied, typed triggers are disabled but command palette still works.
 - If Microphone or Speech Recognition is denied, voice triggers are disabled but keyboard flows still work.
 
 ## App Compatibility Matrix
 
-The first dogfood pass should test insertion in:
+The first dogfood pass should test copying/pasting into:
 
 - ChatGPT web
 - Claude web
@@ -294,8 +294,8 @@ The first dogfood pass should test insertion in:
 
 Each target should be marked:
 
-- direct insert works
-- clipboard fallback works
+- copy/paste works
+- typed trigger replacement works
 - broken
 
 ## Success Criteria
@@ -304,8 +304,7 @@ A first version is successful if:
 
 - the builder uses Flint daily for at least one AI tool
 - Flint replaces at least 5 copy-paste prompt templates
-- v0 insertion works in at least 3 of: ChatGPT web, Claude web, Cursor, VS Code, Terminal/iTerm2, generic browser text field
-- clipboard fallback works anywhere direct insertion fails
+- v0 copy/paste flow works in at least 3 of: ChatGPT web, Claude web, Cursor, VS Code, Terminal/iTerm2, generic browser text field
 - v0.1 typed trigger expansion works for at least 3 high-frequency prompts
 - v0.2 voice trigger invocation works reliably enough for short commands
 - adding a new template takes under 60 seconds
@@ -315,7 +314,7 @@ A first version is successful if:
 
 1. Create a personal prompt inventory: 10 prompts currently copied, reused, or rewritten often.
 2. Prototype the template engine outside the macOS app.
-3. Build a tiny macOS menu bar app that inserts selected template text into the active app.
+3. Build a tiny macOS menu bar app that copies selected template text from a compact Quick Palette.
 4. Add typed trigger expansion for 3–5 triggers.
 5. Add voice command invocation for the same triggers.
 6. Dogfood with real AI workflows for one week.

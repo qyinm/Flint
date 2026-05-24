@@ -82,8 +82,12 @@ final class CommandPaletteWindowController: NSWindowController {
                 self.viewModel.showNewTemplatePage()
                 return nil
             }
+            if event.modifierFlags.contains(.command), event.keyCode == 14 {
+                self.viewModel.showEditTemplatePage()
+                return nil
+            }
             if event.modifierFlags.contains(.command), event.keyCode == 1 {
-                self.viewModel.createDraftTemplate()
+                self.viewModel.saveDraftTemplate()
                 return nil
             }
             guard self.viewModel.page == .commandList else { return event }
@@ -116,6 +120,7 @@ final class CommandPaletteViewModel: ObservableObject {
     enum Page {
         case commandList
         case newTemplate
+        case editTemplate
     }
 
     @Published var page: Page = .commandList
@@ -127,6 +132,7 @@ final class CommandPaletteViewModel: ObservableObject {
     @Published var draftName = ""
     @Published var draftTrigger = ""
     @Published var draftPrompt = ""
+    private var editingRecord: TemplateRecord?
 
     private let repository: TemplateRepository
     private let renderer = TemplateRenderer()
@@ -156,11 +162,23 @@ final class CommandPaletteViewModel: ObservableObject {
         selectedRecord?.template.name ?? "No template"
     }
 
-    var isShowingNewTemplatePage: Bool {
-        page == .newTemplate
+    var isShowingTemplateForm: Bool {
+        page == .newTemplate || page == .editTemplate
     }
 
-    var canCreateDraftTemplate: Bool {
+    var isEditingTemplate: Bool {
+        page == .editTemplate
+    }
+
+    var templateFormTitle: String {
+        isEditingTemplate ? "Edit Template" : "New Template"
+    }
+
+    var templateFormActionTitle: String {
+        isEditingTemplate ? "Save" : "Create"
+    }
+
+    var canSaveDraftTemplate: Bool {
         !draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !draftPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -188,29 +206,52 @@ final class CommandPaletteViewModel: ObservableObject {
 
     func showCommandList() {
         page = .commandList
+        editingRecord = nil
         statusMessage = selectedRecord.map { "Copy \($0.template.name)" } ?? "Copy"
     }
 
     func showNewTemplatePage() {
+        clearDraft()
+        editingRecord = nil
         page = .newTemplate
         statusMessage = "New template"
     }
 
-    func createDraftTemplate() {
-        guard page == .newTemplate else { return }
-        guard canCreateDraftTemplate else {
+    func showEditTemplatePage() {
+        guard page == .commandList, let selectedRecord else { return }
+        if let reason = selectedRecord.unsupportedSaveReason {
+            statusMessage = "Editing unavailable: \(reason)"
+            return
+        }
+        editingRecord = selectedRecord
+        draftName = selectedRecord.template.name
+        draftTrigger = selectedRecord.template.triggers.typed.first ?? ""
+        draftPrompt = selectedRecord.template.targets["generic"] ?? ""
+        page = .editTemplate
+        statusMessage = "Editing \(selectedRecord.template.name)"
+    }
+
+    func saveDraftTemplate() {
+        guard isShowingTemplateForm else { return }
+        guard canSaveDraftTemplate else {
             statusMessage = "Name and prompt are required"
             return
         }
+        if page == .editTemplate {
+            updateDraftTemplate()
+        } else {
+            createDraftTemplate()
+        }
+    }
+
+    private func createDraftTemplate() {
         do {
             let created = try repository.createTemplate(
                 name: draftName,
                 typedTrigger: draftTrigger,
                 prompt: draftPrompt
             )
-            draftName = ""
-            draftTrigger = ""
-            draftPrompt = ""
+            clearDraft()
             NotificationCenter.default.post(name: TypedTriggerExpander.templatesDidChangeNotification, object: nil)
             reloadFromRepository()
             select(records.first { $0.id == created.id } ?? created)
@@ -221,25 +262,57 @@ final class CommandPaletteViewModel: ObservableObject {
         }
     }
 
+    private func updateDraftTemplate() {
+        guard let record = editingRecord else { return }
+        do {
+            var draft = EditableTemplateDraft(document: record.document)
+            let trigger = draftTrigger.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft.typedTriggers = trigger.isEmpty ? [] : [trigger]
+            draft.targets["generic"] = draftPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            try repository.save(draft, for: record)
+            clearDraft()
+            NotificationCenter.default.post(name: TypedTriggerExpander.templatesDidChangeNotification, object: nil)
+            reloadFromRepository()
+            select(records.first { $0.id == record.id })
+            showCommandList()
+            statusMessage = "Saved \(selectedRecordDisplayName)"
+        } catch {
+            statusMessage = "Could not save template: \(error)"
+        }
+    }
+
+    private func clearDraft() {
+        draftName = ""
+        draftTrigger = ""
+        draftPrompt = ""
+    }
+
     func select(_ record: TemplateRecord?) {
         selectedRecord = record
         guard let template = record?.template else {
             renderedPrompt = ""
-            statusMessage = "No local templates"
+            if page == .commandList {
+                statusMessage = "No local templates"
+            }
             return
         }
         do {
             renderedPrompt = try renderer.render(template, target: "generic")
-            statusMessage = "Copy \(template.name)"
+            if page == .commandList {
+                statusMessage = "Copy \(template.name)"
+            }
         } catch {
             renderedPrompt = ""
-            statusMessage = "Could not render template"
+            if page == .commandList {
+                statusMessage = "Could not render template"
+            }
         }
     }
 
     func copySelectedPrompt() {
         guard page == .commandList else {
-            statusMessage = "New template"
+            statusMessage = templateFormTitle
             return
         }
         guard !renderedPrompt.isEmpty else {
@@ -291,8 +364,8 @@ struct CommandPaletteView: View {
         VStack(spacing: 0) {
             searchHeader
             Divider()
-            if viewModel.isShowingNewTemplatePage {
-                newTemplatePage
+            if viewModel.isShowingTemplateForm {
+                templateFormPage
                 Spacer(minLength: 0)
             } else {
                 commandList
@@ -328,21 +401,21 @@ struct CommandPaletteView: View {
         .opacity(didAppear ? 1 : 0)
         .offset(y: didAppear ? 0 : 8)
         .onAppear {
-            focusedField = viewModel.isShowingNewTemplatePage ? .draftName : .search
+            focusedField = viewModel.isShowingTemplateForm ? .draftName : .search
             withAnimation(.easeOut(duration: 0.16)) {
                 didAppear = true
             }
         }
         .onChange(of: viewModel.page) { _, page in
             DispatchQueue.main.async {
-                focusedField = page == .newTemplate ? .draftName : .search
+                focusedField = page == .commandList ? .search : .draftName
             }
         }
     }
 
     private var searchHeader: some View {
         HStack(spacing: 12) {
-            if viewModel.isShowingNewTemplatePage {
+            if viewModel.isShowingTemplateForm {
                 Button {
                     viewModel.showCommandList()
                 } label: {
@@ -352,15 +425,15 @@ struct CommandPaletteView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(FlintTheme.secondaryText)
 
-                Text("New Template")
+                Text(viewModel.templateFormTitle)
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(FlintTheme.primaryText)
                 Spacer()
                 Button {
-                    viewModel.createDraftTemplate()
+                    viewModel.saveDraftTemplate()
                 } label: {
                     HStack(spacing: 7) {
-                        Text("Create")
+                        Text(viewModel.templateFormActionTitle)
                             .font(.system(size: 13, weight: .semibold))
                         KeyBadge("⌘")
                         KeyBadge("S")
@@ -368,9 +441,9 @@ struct CommandPaletteView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(
-                    viewModel.canCreateDraftTemplate ? FlintTheme.primaryText : FlintTheme.mutedText
+                    viewModel.canSaveDraftTemplate ? FlintTheme.primaryText : FlintTheme.mutedText
                 )
-                .disabled(!viewModel.canCreateDraftTemplate)
+                .disabled(!viewModel.canSaveDraftTemplate)
             } else {
                 TextField("Search prompts and commands...", text: $viewModel.query)
                     .textFieldStyle(.plain)
@@ -380,6 +453,20 @@ struct CommandPaletteView: View {
                     .onChange(of: viewModel.query) { _, _ in
                         viewModel.select(viewModel.filteredRecords.first ?? viewModel.records.first)
                     }
+
+                Button {
+                    viewModel.showEditTemplatePage()
+                } label: {
+                    HStack(spacing: 7) {
+                        Text("Edit")
+                            .font(.system(size: 13, weight: .semibold))
+                        KeyBadge("⌘")
+                        KeyBadge("E")
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(viewModel.selectedRecord == nil ? FlintTheme.mutedText : FlintTheme.secondaryText)
+                .disabled(viewModel.selectedRecord == nil)
 
                 Button {
                     viewModel.showNewTemplatePage()
@@ -400,7 +487,7 @@ struct CommandPaletteView: View {
         .frame(height: 64)
     }
 
-    private var newTemplatePage: some View {
+    private var templateFormPage: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 templateDraftField(
@@ -424,6 +511,7 @@ struct CommandPaletteView: View {
         }
         .padding(.top, 20)
         .padding(.horizontal, 24)
+        .padding(.bottom, 24)
     }
 
     private func templateDraftField(
@@ -476,7 +564,7 @@ struct CommandPaletteView: View {
                         .allowsHitTesting(false)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 204, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(FlintTheme.fieldFill)
@@ -579,23 +667,14 @@ struct CommandPaletteView: View {
 
             Spacer()
 
-            if viewModel.isShowingNewTemplatePage {
-                Button("Back") {
-                    viewModel.showCommandList()
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(FlintTheme.primaryText)
-            } else {
-                Button("Copy") {
-                    viewModel.copySelectedPrompt()
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(FlintTheme.primaryText)
-
-                KeyBadge("↩")
+            Button("Copy") {
+                viewModel.copySelectedPrompt()
             }
+            .buttonStyle(.plain)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(FlintTheme.primaryText)
+
+            KeyBadge("↩")
         }
         .padding(.horizontal, 20)
         .frame(height: 44)
