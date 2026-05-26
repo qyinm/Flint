@@ -23,7 +23,8 @@ Flint is inspired by tools like [espanso](https://espanso.org/) and [Wispr Flow]
 - Global hotkey command palette: `⌘⇧Space`
 - Local YAML prompt templates
 - Espanso-style typed triggers such as `:debug`, `:review`, `:plan`, `:codex`, and `:critic`
-- Clipboard-first expansion with paste fallback
+- Copy-only command palette flow
+- Typed trigger replacement when Accessibility permission is available
 - Swift-tested template renderer
 
 ## Quick start
@@ -64,6 +65,16 @@ Enable the terminal app you used to run `swift run FlintApp` (`Terminal`, `iTerm
 swift build
 swift test
 ```
+
+For a one-command local app loop, run:
+
+```bash
+./script/build_and_run.sh
+```
+
+In the Codex app, use the `Run` action. It builds `FlintApp`, stages a local
+`dist/Flint.app` bundle, stops any running Flint process, and launches the fresh
+bundle.
 
 Current automated coverage focuses on template loading, trigger parsing, variable defaults, target-specific rendering, and placeholder replacement.
 

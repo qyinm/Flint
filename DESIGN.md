@@ -200,7 +200,7 @@
   - No search results: show empty result text rather than a blank panel.
 - Error:
   - Template load/render errors should name the failure in plain language without stack traces.
-  - Permission errors should explain Accessibility permission and clipboard fallback.
+  - Typed-trigger permission errors should explain Accessibility permission; the command palette should stay copy-only and reliable.
 - Success:
   - Copy: “Copied expanded prompt. Paste now in the active app.”
 - Disabled:
@@ -234,7 +234,7 @@
   - Template rendering must stay synchronous/simple unless library size changes.
 - Compatibility constraints:
   - Maintain menu bar app behavior.
-  - Typed-trigger expansion may depend on Accessibility permission; manual palette flow should stay reliable through copy.
+  - Typed-trigger expansion may depend on Accessibility permission; manual palette flow is copy-only and should stay reliable without Accessibility.
   - Native window controls must remain clickable and draggable.
 - Test/screenshot expectations:
   - Run `swift build` and `swift test` after UI changes.
